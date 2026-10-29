@@ -8,3 +8,21 @@
 .extra-filters { display: flex; flex-wrap: wrap; gap: 4px; }
 .extra-filter { display: inline-flex; align-items: center; gap: 2px; padding: 1px 2px 1px 8px; font-size: 11px; border: 1px solid var(--accent); border-radius: 10px; color: var(--accent); }
 .extra-filter button.icon { color: inherit; }
+
+/* Vue en cartes */
+.ecards { display: grid; grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); gap: 6px; padding: 4px 12px; }
+.egroup .ecards { padding-left: 20px; }
+.ecard { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 6px 7px; cursor: pointer; background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; }
+.ecard:hover { border-color: var(--muted); }
+.ecard.selected { border-color: var(--accent); }
+.ecard.hidden-item { opacity: 0.45; }
+.ecard-head { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.ecard-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.ecard-wave { display: flex; align-items: center; gap: 2px; height: 26px; }
+.ecard-wave .listen { flex-shrink: 0; width: 18px; padding: 0; }
+.ecard-wave .listen:disabled { opacity: 0.2; }
+.ecard-wave .listen.active { color: var(--accent); }
+.ecard-nowave { flex: 1; height: 26px; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 10px; border-radius: 4px; }
+.ecard-nowave.loading { background: var(--bg); }
+.waveform.static { cursor: inherit; pointer-events: none; }
+.ecard-meta { display: flex; flex-wrap: wrap; gap: 0 7px; color: var(--muted); font-size: 11px; overflow: hidden; white-space: nowrap; }

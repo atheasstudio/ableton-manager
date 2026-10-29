@@ -3,6 +3,7 @@ import { ask, open } from "@tauri-apps/plugin-dialog";
 import { api, Filter, formatAgo, formatDate, formatDuration, ProjectSummary, STATUS_LABELS, Status } from "../api";
 import { ExplorerFilter, formatSpan } from "../api-explorer";
 import Collections from "./Collections";
+import ProjectCard from "./ProjectCard";
 import ContextMenu, { MenuItem, MenuState } from "./ContextMenu";
 import "../explorer.css";
 
@@ -18,6 +19,16 @@ const SORTS: Record<Sort, string> = {
 };
 const STATUS_ORDER: Status[] = ["en_cours", "idee", "fini", "abandonne"];
 const collator = new Intl.Collator("fr", { numeric: true, sensitivity: "base" });
+
+type View = "list" | "cards";
+
+function loadView(): View {
+  try {
+    return localStorage.getItem("explorer-view") === "cards" ? "cards" : "list";
+  } catch {
+    return "list";
+  }
+}
 
 function loadSort(): Sort {
   try {
@@ -75,6 +86,13 @@ export default function Explorer(props: Props) {
   const [sort, setSortState] = useState<Sort>(loadSort);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [view, setViewState] = useState<View>(loadView);
+  const setView = (v: View) => {
+    setViewState(v);
+    try {
+      localStorage.setItem("explorer-view", v);
+    } catch {}
+  };
   const setSort = (s: Sort) => {
     setSortState(s);
     try {
@@ -108,7 +126,11 @@ export default function Explorer(props: Props) {
     }
     return [...byFolder.entries()];
   }, [sorted]);
-  const order = useMemo(() => groups.flatMap(([, ps]) => ps.map((p) => p.id)), [groups]);
+  // Ordre de ↑ ↓ : celui de l'affichage, sans les sets des dossiers repliés.
+  const order = useMemo(
+    () => groups.flatMap(([folder, ps]) => (ps.length > 1 && collapsed.has(folder) ? [] : ps.map((p) => p.id))),
+    [groups, collapsed],
+  );
 
   // Garde le projet choisi visible.
   useEffect(() => {
@@ -212,14 +234,31 @@ export default function Explorer(props: Props) {
     });
   }
 
+  /** Gestionnaires communs aux lignes et aux cartes. */
+  const itemProps = (p: ProjectSummary, inGroup: boolean) => ({
+    "data-id": p.id,
+    onClick: () => props.onSelect(p.id),
+    onContextMenu: (e: React.MouseEvent) => projectMenu(e, p, inGroup),
+    title: p.folder,
+  });
+
+  const card = (p: ProjectSummary, inGroup: boolean) => (
+    <ProjectCard
+      key={p.id}
+      project={p}
+      selected={p.id === selected}
+      playing={props.playing === p.id}
+      nested={inGroup}
+      onPlay={() => props.onPlay(p)}
+      rowProps={itemProps(p, inGroup)}
+    />
+  );
+
   const row = (p: ProjectSummary, inGroup: boolean) => (
     <div
       key={p.id}
-      data-id={p.id}
+      {...itemProps(p, inGroup)}
       className={`erow ${p.id === selected ? "selected" : ""} ${inGroup ? "nested" : ""} ${p.hidden ? "hidden-item" : ""}`}
-      onClick={() => props.onSelect(p.id)}
-      onContextMenu={(e) => projectMenu(e, p, inGroup)}
-      title={p.folder}
     >
       <button
         className={`icon listen ${props.playing === p.id ? "active" : ""}`}
@@ -252,6 +291,60 @@ export default function Explorer(props: Props) {
       </div>
     </div>
   );
+
+  const groupBlock = (folder: string, ps: ProjectSummary[]) => (
+    <div
+      key={folder}
+      className={`egroup ${ps.every((p) => p.hidden) ? "hidden-item" : ""} ${collapsed.has(folder) ? "collapsed" : ""}`}
+    >
+      <div
+        className="egroup-head"
+        title={folder}
+        onClick={() =>
+          setCollapsed((c) => {
+            const n = new Set(c);
+            if (!n.delete(folder)) n.add(folder);
+            return n;
+          })
+        }
+        onContextMenu={(e) => folderMenu(e, folder, ps)}
+      >
+        <span>
+          {collapsed.has(folder) ? "▸" : "▾"} 📁 {baseName(folder)}
+        </span>
+        <small>{ps.length} sets</small>
+      </div>
+      {view === "cards" ? (
+        !collapsed.has(folder) && <div className="ecards">{ps.map((p) => card(p, true))}</div>
+      ) : (
+        ps.map((p) => row(p, true))
+      )}
+    </div>
+  );
+
+  /** Vue en cartes : les projets seuls qui se suivent partagent une grille. */
+  function cardBlocks() {
+    const out: React.ReactNode[] = [];
+    let singles: ProjectSummary[] = [];
+    const flush = () => {
+      if (singles.length)
+        out.push(
+          <div key={`s-${singles[0].id}`} className="ecards">
+            {singles.map((p) => card(p, false))}
+          </div>,
+        );
+      singles = [];
+    };
+    for (const [folder, ps] of groups) {
+      if (ps.length === 1) singles.push(ps[0]);
+      else {
+        flush();
+        out.push(groupBlock(folder, ps));
+      }
+    }
+    flush();
+    return out;
+  }
 
   return (
     <div className="explorer-body" onKeyDown={onKeyDown}>
@@ -304,6 +397,13 @@ export default function Explorer(props: Props) {
           ))}
         </select>
         <button
+          className="fav-filter"
+          onClick={() => setView(view === "cards" ? "list" : "cards")}
+          title={view === "cards" ? "Afficher en liste" : "Afficher en cartes"}
+        >
+          {view === "cards" ? "☰" : "▦"}
+        </button>
+        <button
           className={`fav-filter ${filter.show_hidden ? "active" : ""}`}
           onClick={() => props.onFilter({ ...filter, show_hidden: !filter.show_hidden })}
           title="Afficher les éléments masqués"
@@ -335,37 +435,11 @@ export default function Explorer(props: Props) {
         </div>
       )}
 
-      <div className="elist" ref={list} tabIndex={0}>
+      <div className={`elist ${view === "cards" ? "cards" : ""}`} ref={list} tabIndex={0}>
         {projects.length === 0 && <p className="empty">Aucun projet trouvé.</p>}
-        {groups.map(([folder, ps]) =>
-          ps.length === 1 ? (
-            row(ps[0], false)
-          ) : (
-            <div
-              key={folder}
-              className={`egroup ${ps.every((p) => p.hidden) ? "hidden-item" : ""} ${collapsed.has(folder) ? "collapsed" : ""}`}
-            >
-              <div
-                className="egroup-head"
-                title={folder}
-                onClick={() =>
-                  setCollapsed((c) => {
-                    const n = new Set(c);
-                    if (!n.delete(folder)) n.add(folder);
-                    return n;
-                  })
-                }
-                onContextMenu={(e) => folderMenu(e, folder, ps)}
-              >
-                <span>
-                  {collapsed.has(folder) ? "▸" : "▾"} 📁 {baseName(folder)}
-                </span>
-                <small>{ps.length} sets</small>
-              </div>
-              {ps.map((p) => row(p, true))}
-            </div>
-          ),
-        )}
+        {view === "cards"
+          ? cardBlocks()
+          : groups.map(([folder, ps]) => (ps.length === 1 ? row(ps[0], false) : groupBlock(folder, ps)))}
       </div>
       {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
       <small className="ecount">
