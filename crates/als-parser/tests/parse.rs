@@ -25,11 +25,14 @@ const LIVE12: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
             <RelativePath Value="../Pack/Clap.wav" />
             <Path Value="F:/musique/Pack/Clap.wav" />
           </FileRef></SampleRef></AudioClip>
-          <AudioClip Id="1"><SampleRef><FileRef>
+          <AudioClip Id="1" Time="64"><CurrentStart Value="64" /><CurrentEnd Value="96" /><SampleRef><FileRef>
             <RelativePath Value="../Pack/Clap.wav" />
             <Path Value="F:/musique/Pack/Clap.wav" />
           </FileRef></SampleRef></AudioClip>
-        </Events></ArrangerAutomation></Sample></MainSequencer>
+        </Events></ArrangerAutomation></Sample>
+        <ClipSlotList><ClipSlot Id="0"><ClipSlot><Value>
+          <AudioClip Id="2"><CurrentEnd Value="500" /></AudioClip>
+        </Value></ClipSlot></ClipSlot></ClipSlotList></MainSequencer>
       </AudioTrack>
       <ReturnTrack Id="3"><Name><EffectiveName Value="A-Reverb" /></Name></ReturnTrack>
     </Tracks>
@@ -97,6 +100,7 @@ fn live12_set() {
     assert_eq!(set.locators.len(), 1);
     assert_eq!(set.locators[0].time, 64.0);
     assert_eq!(set.locators[0].name, "Drop");
+    assert_eq!(set.arrangement_end, Some(96.0), "les clips de la vue Session sont ignorés");
 }
 
 #[test]
