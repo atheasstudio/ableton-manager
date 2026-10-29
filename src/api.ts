@@ -24,6 +24,8 @@ export interface ProjectSummary {
   status: Status;
   favorite: boolean;
   tags: string[];
+  /** Aperçu audio (fichier du coffre). */
+  preview_hash: string | null;
 }
 
 export interface Item {
@@ -93,7 +95,7 @@ export interface Version {
   live_version: string | null;
   files: number;
   missing: number;
-  /** Aperçu audio (pré-écoute, phase 3) : toujours vide pour l'instant. */
+  /** Aperçu audio (fichier du coffre). */
   preview_hash: string | null;
 }
 
@@ -132,6 +134,48 @@ export interface VaultInfo {
   path: string;
   files: number;
   bytes: number;
+}
+
+export type PreviewSource = "capture" | "render" | "file";
+
+export const PREVIEW_SOURCES: Record<PreviewSource, string> = {
+  capture: "Écoutes dans Live",
+  render: "Rendu complet",
+  file: "Fichier importé",
+};
+
+export interface PreviewInfo {
+  hash: string;
+  /** Secondes. */
+  duration: number;
+  /** Forme d'onde : niveau crête de chaque tranche, de 0 à 255. */
+  peaks: number[];
+  source: PreviewSource;
+  /** Tempo qui aligne l'aperçu sur les mesures (seconde = beats × 60 / tempo). */
+  tempo: number | null;
+  created_at: number;
+}
+
+export interface RenderState {
+  project_id: number;
+  /** Position atteinte et fin du morceau, en beats. */
+  beats: number;
+  end: number;
+}
+
+export interface CaptureStatus {
+  listening: boolean;
+  /** Le device Max for Live a donné signe de vie récemment. */
+  device: boolean;
+  recording: boolean;
+  /** Set ouvert dans Live. */
+  open_set: string | null;
+  render: RenderState | null;
+}
+
+export interface RenderDone {
+  project_id: number | null;
+  error: string | null;
 }
 
 export interface Annotation {
@@ -196,6 +240,17 @@ export const api = {
   vaultInfo: () => invoke<VaultInfo>("vault_info"),
   setVaultDir: (path: string) => invoke<void>("set_vault_dir", { path }),
 
+  getPreview: (hash: string) => invoke<PreviewInfo | null>("get_preview", { hash }),
+  previewAudio: (hash: string) => invoke<ArrayBuffer>("preview_audio", { hash }),
+  findBounce: (projectId: number) => invoke<string | null>("find_bounce", { projectId }),
+  importPreview: (projectId: number, path: string) =>
+    invoke<string>("import_preview", { projectId, path }),
+  captureStatus: () => invoke<CaptureStatus>("capture_status"),
+  renderPreview: (projectId: number) => invoke<void>("render_preview", { projectId }),
+  cancelRender: () => invoke<void>("cancel_render"),
+  /** Sans dossier, cherche la bibliothèque utilisateur de Live dans Documents. */
+  installDevice: (userLibrary?: string) =>
+    invoke<string>("install_device", { userLibrary: userLibrary ?? null }),
   getTimeline: (projectId: number) => invoke<Timeline>("get_timeline", { projectId }),
   addAnnotation: (projectId: number, beat: number, label: string) =>
     invoke<Annotation>("add_annotation", { projectId, beat, label }),
@@ -211,6 +266,9 @@ export const api = {
   installRemoteScript: (userLibrary: string | null) =>
     invoke<string | null>("install_remote_script", { userLibrary }),
 };
+
+/** Erreur d'installation : la bibliothèque utilisateur de Live n'est pas à sa place habituelle. */
+export const NO_USER_LIBRARY = "NO_USER_LIBRARY";
 
 export function formatDateTime(seconds: number): string {
   return new Date(seconds * 1000).toLocaleString("fr-FR", {
@@ -239,4 +297,18 @@ export function formatDate(seconds: number): string {
     month: "short",
     year: "numeric",
   });
+}
+
+/** mm:ss */
+export function formatTime(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+/** Numéro de mesure (à partir de 1) d'une position en secondes. */
+export function barAt(seconds: number, tempo: number, timeSig: string | null): number {
+  const [num, den] = (timeSig ?? "4/4").split("/").map(Number);
+  // Live compte en noires : une mesure de 6/8 fait 3 beats.
+  const beatsPerBar = num && den ? (num * 4) / den : 4;
+  return Math.floor((seconds * tempo) / 60 / beatsPerBar) + 1;
 }

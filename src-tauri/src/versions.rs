@@ -39,7 +39,7 @@ fn other<T>(msg: impl Into<String>) -> Result<T> {
 /// effacer un fichier qu'un instantané vient d'y ranger.
 static VAULT_LOCK: Mutex<()> = Mutex::new(());
 
-fn lock() -> std::sync::MutexGuard<'static, ()> {
+pub(crate) fn lock() -> std::sync::MutexGuard<'static, ()> {
     VAULT_LOCK.lock().unwrap_or_else(|e| e.into_inner())
 }
 
@@ -155,7 +155,7 @@ pub struct VersionRow {
     pub files: usize,
     /// Audios déjà introuvables au moment de la sauvegarde.
     pub missing: usize,
-    /// Aperçu audio, quand la pré-écoute existera.
+    /// Aperçu audio (fichier du coffre).
     pub preview_hash: Option<String>,
 }
 
@@ -531,9 +531,12 @@ pub fn restore(conn: &Connection, vault: &Vault, id: i64, now: i64) -> Result<Re
     let lost = materialize(conn, vault, id, Path::new(&b.folder), Path::new(&b.als_path))?;
     let created = snapshot_file(conn, vault, &b, Path::new(&b.als_path), now, "restore")?;
     if let Some(new) = created {
+        // Même contenu que la version restaurée : même aperçu.
         conn.execute(
-            "UPDATE versions SET auto_name = ?2 WHERE id = ?1",
-            params![new, format!("Retour à « {} »", label(&v))],
+            "UPDATE versions SET auto_name = ?2,
+                 preview_hash = coalesce(preview_hash, (SELECT preview_hash FROM versions WHERE id = ?3))
+             WHERE id = ?1",
+            params![new, format!("Retour à « {} »", label(&v)), v.id],
         )?;
     }
     Ok(RestoreReport { version_id: created.or(branch(conn, b.id)?.head_id), lost })
@@ -616,12 +619,15 @@ pub fn delete(conn: &Connection, vault: &Vault, id: i64) -> Result<u64> {
     Ok(collect_garbage(conn, vault)?.1)
 }
 
-fn collect_garbage(conn: &Connection, vault: &Vault) -> Result<(usize, u64)> {
-    let mut stmt = conn.prepare(
+pub(crate) fn collect_garbage(conn: &Connection, vault: &Vault) -> Result<(usize, u64)> {
+    const PREVIEWS: &str = "SELECT preview_hash FROM versions WHERE preview_hash IS NOT NULL
+                            UNION SELECT preview_hash FROM projects WHERE preview_hash IS NOT NULL";
+    conn.execute(&format!("DELETE FROM previews WHERE hash NOT IN ({PREVIEWS})"), [])?;
+    let mut stmt = conn.prepare(&format!(
         "SELECT als_hash FROM versions
-         UNION SELECT preview_hash FROM versions WHERE preview_hash IS NOT NULL
-         UNION SELECT hash FROM version_files WHERE hash IS NOT NULL",
-    )?;
+         UNION {PREVIEWS}
+         UNION SELECT hash FROM version_files WHERE hash IS NOT NULL"
+    ))?;
     let used = stmt.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<HashSet<String>>>()?;
     Ok(vault.collect_garbage(&used)?)
 }

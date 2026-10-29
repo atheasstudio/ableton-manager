@@ -145,6 +145,46 @@ CREATE TABLE annotations (
 );
 
 CREATE INDEX annotations_project ON annotations(project_id, beat);
+"#, r#"
+-- Dernier aperçu audio du projet (fichier du coffre).
+ALTER TABLE projects ADD COLUMN preview_hash TEXT;
+
+-- Aperçus rangés dans le coffre (MP3), avec leur forme d'onde.
+CREATE TABLE previews (
+    hash       TEXT PRIMARY KEY,
+    -- secondes
+    duration   REAL NOT NULL,
+    -- niveau crête de chaque tranche, de 0 à 255
+    peaks      BLOB NOT NULL,
+    -- 'capture' (écoute dans Live), 'render' (rendu complet), 'file' (bounce importé)
+    source     TEXT NOT NULL,
+    -- tempo qui aligne l'aperçu sur les mesures (seconde = beats × 60 / tempo)
+    tempo      REAL,
+    created_at INTEGER NOT NULL
+);
+
+-- Enregistrements du master envoyés par le device Max for Live, en attente
+-- d'assemblage. Supprimés quand des écoutes plus récentes les recouvrent.
+CREATE TABLE captures (
+    id         INTEGER PRIMARY KEY,
+    -- set joué (chemin du .als)
+    als_path   TEXT NOT NULL,
+    -- fichier WAV
+    path       TEXT NOT NULL,
+    -- millisecondes depuis 1970
+    started_at INTEGER NOT NULL,
+    tempo      REAL NOT NULL,
+    -- fin de l'arrangement, en beats (0 si inconnue)
+    song_end   REAL NOT NULL,
+    -- JSON : [[ms depuis le début de l'enregistrement, position en beats], …]
+    positions  TEXT NOT NULL,
+    -- 1 = rendu complet demandé depuis l'appli
+    render     INTEGER NOT NULL DEFAULT 0,
+    -- 1 = le set avait des modifications non sauvegardées
+    modified   INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX captures_set ON captures(als_path);
 "#];
 
 pub fn open(path: &Path) -> Result<Connection> {
@@ -344,6 +384,8 @@ pub struct ProjectSummary {
     pub status: String,
     pub favorite: bool,
     pub tags: Vec<String>,
+    /// Aperçu audio (fichier du coffre).
+    pub preview_hash: Option<String>,
 }
 
 #[derive(Debug, Default, serde::Deserialize)]
@@ -361,7 +403,8 @@ pub fn search_projects(conn: &Connection, f: &Filter) -> Result<Vec<ProjectSumma
     let mut stmt = conn.prepare(
         "SELECT p.id, p.name, p.folder, p.tempo, p.live_version, p.modified_at, p.status, p.favorite,
              (SELECT group_concat(t.name, char(31)) FROM project_tags pt JOIN tags t ON t.id = pt.tag_id
-                 WHERE pt.project_id = p.id)
+                 WHERE pt.project_id = p.id),
+             p.preview_hash
          FROM projects p
          WHERE (?1 IS NULL OR p.id IN (SELECT rowid FROM search WHERE search MATCH ?1))
            AND (?2 IS NULL OR p.status = ?2)
@@ -382,6 +425,7 @@ pub fn search_projects(conn: &Connection, f: &Filter) -> Result<Vec<ProjectSumma
             status: r.get(6)?,
             favorite: r.get(7)?,
             tags: split_tags(tags),
+            preview_hash: r.get(9)?,
         })
     })?;
     rows.collect()
@@ -435,7 +479,8 @@ pub fn get_project(conn: &Connection, id: i64) -> Result<Option<ProjectDetail>> 
             "SELECT p.id, p.name, p.folder, p.tempo, p.live_version, p.modified_at, p.status,
                  p.favorite, p.als_path, p.time_sig, p.note,
                  (SELECT group_concat(t.name, char(31)) FROM project_tags pt
-                     JOIN tags t ON t.id = pt.tag_id WHERE pt.project_id = p.id)
+                     JOIN tags t ON t.id = pt.tag_id WHERE pt.project_id = p.id),
+                 p.preview_hash
              FROM projects p WHERE p.id = ?1",
             [id],
             |r| {
@@ -450,6 +495,7 @@ pub fn get_project(conn: &Connection, id: i64) -> Result<Option<ProjectDetail>> 
                         status: r.get(6)?,
                         favorite: r.get(7)?,
                         tags: split_tags(r.get(11)?),
+                        preview_hash: r.get(12)?,
                     },
                     r.get::<_, String>(8)?,
                     r.get::<_, Option<String>>(9)?,

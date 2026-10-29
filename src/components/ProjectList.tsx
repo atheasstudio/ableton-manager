@@ -4,9 +4,12 @@ interface Props {
   projects: ProjectSummary[];
   selected: number | null;
   onSelect: (id: number) => void;
+  /** Projet en cours d'écoute. */
+  playing: number | null;
+  onPlay: (p: ProjectSummary) => void;
 }
 
-export default function ProjectList({ projects, selected, onSelect }: Props) {
+export default function ProjectList({ projects, selected, onSelect, playing, onPlay }: Props) {
   if (projects.length === 0) {
     return <p className="empty">Aucun projet. Ajoute un dossier puis lance un scan.</p>;
   }
@@ -14,6 +17,7 @@ export default function ProjectList({ projects, selected, onSelect }: Props) {
     <table className="projects">
       <thead>
         <tr>
+          <th />
           <th />
           <th>Projet</th>
           <th>BPM</th>
@@ -31,6 +35,20 @@ export default function ProjectList({ projects, selected, onSelect }: Props) {
             title={p.folder}
           >
             <td className="fav">{p.favorite ? "★" : ""}</td>
+            <td>
+              {p.preview_hash && (
+                <button
+                  className={`icon listen ${playing === p.id ? "active" : ""}`}
+                  title="Écouter l'aperçu"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onPlay(p);
+                  }}
+                >
+                  ▶
+                </button>
+              )}
+            </td>
             <td>{p.name}</td>
             <td className="num">{p.tempo ?? "–"}</td>
             <td>
