@@ -521,7 +521,7 @@ pub struct Filter {
 }
 
 /// Vrai si `p` (alias de projects) est masqué, lui ou un dossier parent.
-const HIDDEN_SQL: &str = "EXISTS (SELECT 1 FROM hidden h WHERE h.path IN (p.als_path, p.folder)
+pub(crate) const HIDDEN_SQL: &str = "EXISTS (SELECT 1 FROM hidden h WHERE h.path IN (p.als_path, p.folder)
     OR substr(p.folder, 1, length(h.path) + 1) IN (h.path || '\\', h.path || '/'))";
 
 pub fn search_projects(conn: &Connection, f: &Filter) -> Result<Vec<ProjectSummary>> {
@@ -692,11 +692,7 @@ pub fn get_project(conn: &Connection, id: i64) -> Result<Option<ProjectDetail>> 
         let rows = stmt.query_map(params![id, kind], |r| {
             let path: Option<String> = r.get(1)?;
             let rel_path: Option<String> = r.get(2)?;
-            // Le projet a pu être déplacé : le chemin relatif peut marcher
-            // alors que l'absolu ne marche plus, et inversement.
-            let found = path.as_deref().is_some_and(|p| Path::new(p).exists())
-                || rel_path.as_deref().is_some_and(|p| folder.join(p).exists());
-            let missing = kind == "sample" && !found;
+            let missing = kind == "sample" && !sample_found(folder, path.as_deref(), rel_path.as_deref());
             Ok(ItemRow {
                 name: r.get(0)?,
                 path: path.or(rel_path),
@@ -716,6 +712,31 @@ pub fn get_project(conn: &Connection, id: i64) -> Result<Option<ProjectDetail>> 
         note,
         tracks,
     }))
+}
+
+/// Le sample existe-t-il sur le disque ? Le projet a pu être déplacé : le
+/// chemin relatif peut marcher alors que l'absolu ne marche plus, et inversement.
+pub fn sample_found(folder: &Path, path: Option<&str>, rel_path: Option<&str>) -> bool {
+    path.is_some_and(|p| Path::new(p).exists()) || rel_path.is_some_and(|p| folder.join(p).exists())
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+pub struct PluginUse {
+    pub name: String,
+    /// Nombre de projets (non masqués) qui l'utilisent.
+    pub projects: i64,
+}
+
+/// Tous les plugins de la bibliothèque, les plus utilisés d'abord.
+pub fn plugin_inventory(conn: &Connection) -> Result<Vec<PluginUse>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT i.name, COUNT(DISTINCT i.project_id) AS n
+         FROM project_items i JOIN projects p ON p.id = i.project_id
+         WHERE i.kind = 'plugin' AND NOT {HIDDEN_SQL}
+         GROUP BY i.name ORDER BY n DESC, i.name COLLATE NOCASE"
+    ))?;
+    let rows = stmt.query_map([], |r| Ok(PluginUse { name: r.get(0)?, projects: r.get(1)? }))?;
+    rows.collect()
 }
 
 pub fn als_path(conn: &Connection, id: i64) -> Result<Option<(String, String)>> {
@@ -899,6 +920,15 @@ mod tests {
         );
         assert_eq!(names(Filter { plugin: Some("Serum 2".into()), ..Default::default() }).len(), 3);
         assert!(names(Filter { plugin: Some("Serum".into()), ..Default::default() }).is_empty(), "nom exact");
+    }
+
+    #[test]
+    fn plugin_inventory_counts_projects() {
+        let mut conn = open_in_memory().unwrap();
+        insert(&mut conn, "a.als", "A", 1);
+        insert(&mut conn, "b.als", "B", 2);
+        let inv = plugin_inventory(&conn).unwrap();
+        assert_eq!(inv, [PluginUse { name: "Serum 2".into(), projects: 2 }]);
     }
 
     #[test]
