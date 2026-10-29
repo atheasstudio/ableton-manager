@@ -61,6 +61,13 @@ Le device n'enregistre que si l'appli tourne : il parle à l'appli en OSC sur `1
 - Sessions récentes, avec leur branche si ce n'est pas la principale. La croix supprime une session (elle ne compte plus nulle part).
 - L'en-tête du projet affiche « ⏱ 12 h 30 · dernière session hier » ; un clic ouvre l'onglet. Tout se recharge dès qu'une session se termine (évènement `worktime-changed`).
 
+### Notifications
+
+- Les messages (résultat d'un scan, d'une restauration, erreurs…) s'affichent en notifications en bas à droite, empilées ; le survol suspend le décompte.
+- Actions réversibles (favori, statut, retrait d'un tag) : appliquées tout de suite, « Annuler » (4 s) fait l'inverse.
+- Actions destructrices (supprimer une version, une branche, une session de travail) : rien ne part tout de suite, la notification laisse 6 s pour « Annuler » ; la suppression a lieu à son expiration (ou à la fermeture de la fenêtre). La suppression d'une branche garde sa confirmation, puisque son dossier part à la corbeille.
+- N'importe quelle partie de l'interface peut en afficher une avec l'évènement DOM `am:toast` (`{ message, undo?, commit?, duration? }`).
+
 ## Développer
 
 Prérequis : [Rust](https://rustup.rs), Node 22 et les [prérequis Tauri](https://tauri.app/start/prerequisites/) (WebView2 est déjà présent sur Windows 10/11).
