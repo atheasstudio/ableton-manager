@@ -63,6 +63,77 @@ export interface ScanProgress {
   current: string;
 }
 
+export interface Branch {
+  id: number;
+  project_id: number;
+  name: string;
+  folder: string;
+  als_path: string;
+  /** Version d'où part la branche. */
+  base_id: number | null;
+  /** Dernière version de la branche. */
+  head_id: number | null;
+  is_main: boolean;
+  created_at: number;
+}
+
+export type VersionSource = "save" | "backup" | "manual" | "restore";
+
+export interface Version {
+  id: number;
+  branch_id: number;
+  parent_id: number | null;
+  created_at: number;
+  source: VersionSource;
+  name: string | null;
+  /** Résumé des changements par rapport à la version parente. */
+  auto_name: string;
+  als_name: string;
+  tempo: number | null;
+  live_version: string | null;
+  files: number;
+  missing: number;
+  /** Aperçu audio (pré-écoute, phase 3) : toujours vide pour l'instant. */
+  preview_hash: string | null;
+}
+
+export interface VersionsView {
+  branches: Branch[];
+  versions: Version[];
+}
+
+type Change<T> = [T, T] | null;
+
+export interface Diff {
+  tempo: Change<number | null>;
+  time_sig: Change<string | null>;
+  live_version: Change<string | null>;
+  tracks_added: { name: string; kind: string }[];
+  tracks_removed: { name: string; kind: string }[];
+  plugins_added: string[];
+  plugins_removed: string[];
+  samples_added: string[];
+  samples_removed: string[];
+  locators_added: string[];
+  locators_removed: string[];
+}
+
+export interface RestoreReport {
+  version_id: number | null;
+  lost: string[];
+}
+
+export interface NewBranch {
+  branch: Branch;
+  lost: string[];
+}
+
+export interface VaultInfo {
+  path: string;
+  files: number;
+  bytes: number;
+}
+
 export const api = {
   listRoots: () => invoke<Root[]>("list_roots"),
   addRoot: (path: string) => invoke<number>("add_root", { path }),
@@ -78,7 +149,43 @@ export const api = {
   removeTag: (id: number, tag: string) => invoke<void>("remove_tag", { id, tag }),
   openInAbleton: (id: number) => invoke<void>("open_in_ableton", { id }),
   openFolder: (id: number) => invoke<void>("open_folder", { id }),
+
+  getVersions: (projectId: number) => invoke<VersionsView>("get_versions", { projectId }),
+  enableVersions: (projectId: number, importBackups: boolean) =>
+    invoke<number>("enable_versions", { projectId, importBackups }),
+  snapshotNow: (branchId: number) => invoke<number | null>("snapshot_now", { branchId }),
+  renameVersion: (id: number, name: string) => invoke<void>("rename_version", { id, name }),
+  restoreVersion: (id: number) => invoke<RestoreReport>("restore_version", { id }),
+  createBranch: (versionId: number, name: string) =>
+    invoke<NewBranch>("create_branch", { versionId, name }),
+  deleteVersion: (id: number) => invoke<number>("delete_version", { id }),
+  compareVersions: (a: number, b: number) => invoke<Diff>("compare_versions", { a, b }),
+  openBranch: (branchId: number) => invoke<void>("open_branch", { branchId }),
+  openBranchFolder: (branchId: number) => invoke<void>("open_branch_folder", { branchId }),
+  vaultInfo: () => invoke<VaultInfo>("vault_info"),
+  setVaultDir: (path: string) => invoke<void>("set_vault_dir", { path }),
 };
+
+export function formatDateTime(seconds: number): string {
+  return new Date(seconds * 1000).toLocaleString("fr-FR", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+export function formatSize(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} Ko`;
+  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} Mo`;
+  return `${(bytes / 1024 ** 3).toFixed(2)} Go`;
+}
+
+/** Nom affiché d'une version : celui donné par l'utilisateur, sinon le résumé. */
+export function versionLabel(v: Version): string {
+  return v.name ?? v.auto_name;
+}
 
 export function formatDate(seconds: number): string {
   return new Date(seconds * 1000).toLocaleDateString("fr-FR", {
