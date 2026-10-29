@@ -6,3 +6,4 @@ target/
 .DS_Store
 # projets Ableton personnels (ne pas publier)
 fixtures-local/
+src-tauri/gen/
