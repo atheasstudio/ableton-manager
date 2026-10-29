@@ -1,0 +1,26 @@
+/* Santé de la bibliothèque (DoctorDialog). */
+.dialog.doctor { width: min(820px, 92vw); }
+.doctor-body { display: flex; flex-direction: column; gap: 10px; }
+.doctor-body .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.doctor-error { color: var(--danger); }
+.doctor-muted { color: var(--muted); }
+
+.doctor-projects, .doctor-samples, .doctor-plugins, .doctor-users { list-style: none; margin: 0; padding: 0; }
+.doctor-projects > li { border: 1px solid var(--border); border-radius: 6px; background: var(--bg); margin-bottom: 6px; }
+.doctor-projects summary { display: flex; align-items: center; gap: 8px; padding: 8px 10px; cursor: pointer; }
+.doctor-projects details > .actions { padding: 0 10px 10px; }
+.doctor-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doctor-count { background: var(--surface-2); color: var(--muted); border: none; border-radius: 10px; padding: 1px 8px; font-size: 12px; }
+button.doctor-count:hover { color: var(--text); }
+
+.doctor-samples { padding: 0 10px 8px; display: flex; flex-direction: column; gap: 6px; }
+.doctor-samples > li { display: flex; flex-direction: column; gap: 3px; border-top: 1px solid var(--border); padding-top: 6px; }
+.doctor-sample { display: flex; flex-direction: column; min-width: 0; }
+.doctor-sample small, .doctor-samples small { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doctor-samples select { width: 100%; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 3px; }
+
+.doctor-plugins > li { border-bottom: 1px solid var(--border); padding: 4px 0; }
+.doctor-plugin { display: flex; align-items: center; gap: 8px; }
+.doctor-plugin .link { flex: 1; text-align: left; background: none; border: none; color: var(--text); padding: 2px 0; cursor: pointer; }
+.doctor-plugin .link:hover { color: var(--accent); }
+.doctor-users { padding: 4px 0 4px 16px; color: var(--muted); font-size: 13px; }

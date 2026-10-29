@@ -3,6 +3,7 @@ mod audio;
 mod capture;
 mod commands;
 mod db;
+mod doctor;
 mod files;
 mod live;
 mod live_window;
@@ -135,6 +136,10 @@ pub fn run() {
             commands::set_worktime_enabled,
             commands::list_collections,
             commands::save_collections,
+            commands::doctor_missing_samples,
+            commands::doctor_find_candidates,
+            commands::doctor_relink,
+            commands::doctor_plugins,
         ])
         .run(tauri::generate_context!())
         .expect("erreur au lancement de l'application");

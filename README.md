@@ -67,6 +67,15 @@ Le device n'enregistre que si l'appli tourne : il parle à l'appli en OSC sur `1
 - Une collection est un filtre enregistré sous un nom : `{ id, name, filter }`. Elles sont stockées en JSON dans la table `settings` (clé `collections`), via les commandes `list_collections` et `save_collections`.
 - Tant que rien n'est enregistré, trois collections sont proposées : « Touchés cette semaine », « Oubliés depuis 3 mois », « En cours ».
 
+## Santé de la bibliothèque
+
+Fenêtre ouverte par le bouton « Santé de la bibliothèque » de la barre de gauche (évènement DOM `am:open-doctor`).
+
+- **Samples manquants** : liste, par projet, des samples introuvables (même test que la fiche du projet : chemin absolu ou relatif au dossier). « Chercher les fichiers » parcourt les dossiers scannés à la recherche de fichiers du même nom ; on choisit le bon candidat (proposé d'office s'il est seul), puis « Réparer » réécrit les chemins dans le `.als` (`relocate.rs`).
+- Avant la réécriture : une version est créée si les versions sont actives, sinon le `.als` est copié en `.als.bak` (puis `.als.bak2`…). Le set doit être fermé dans Live. Le projet est ensuite relu pour la bibliothèque.
+- **Plugins** : inventaire de tous les plugins avec le nombre de projets qui les utilisent. Un clic sur un nom filtre l'explorateur (évènement `am:filter-plugin`) ; le nombre de projets déplie la liste « Quels projets utilisent X ? ».
+- Les travaux longs tournent hors du fil de l'interface et envoient leur progression par l'évènement Tauri `doctor-progress`.
+
 ## Développer
 
 Prérequis : [Rust](https://rustup.rs), Node 22 et les [prérequis Tauri](https://tauri.app/start/prerequisites/) (WebView2 est déjà présent sur Windows 10/11).

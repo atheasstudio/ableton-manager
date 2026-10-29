@@ -271,6 +271,47 @@ export interface WorktimeOverview {
   top: { id: number; name: string; seconds: number }[];
 }
 
+export interface MissingSample {
+  name: string;
+  /** Chemin absolu noté dans le set. */
+  path: string | null;
+  rel_path: string | null;
+  /** Sans chemin absolu (vieux formats), on ne sait pas le réécrire. */
+  relinkable: boolean;
+}
+
+export interface MissingProject {
+  project_id: number;
+  name: string;
+  folder: string;
+  samples: MissingSample[];
+}
+
+export interface Relink {
+  old_path: string;
+  new_path: string;
+}
+
+export interface RelinkReport {
+  relinked: number;
+  /** Copie .bak du set, si le projet n'est pas versionné. */
+  backup: string | null;
+  version_id: number | null;
+}
+
+export interface PluginUse {
+  name: string;
+  projects: number;
+}
+
+/** Évènement Tauri `doctor-progress`. */
+export interface DoctorProgress {
+  step: "samples" | "search";
+  done: number;
+  /** 0 si inconnu. */
+  total: number;
+}
+
 export const api = {
   listRoots: () => invoke<Root[]>("list_roots"),
   addRoot: (path: string) => invoke<number>("add_root", { path }),
@@ -360,6 +401,14 @@ export const api = {
 
   listCollections: () => invoke<Collection[]>("list_collections"),
   saveCollections: (collections: Collection[]) => invoke<void>("save_collections", { collections }),
+
+  doctorMissingSamples: () => invoke<MissingProject[]>("doctor_missing_samples"),
+  /** Fichiers du même nom dans les dossiers scannés, par nom demandé. */
+  doctorFindCandidates: (names: string[]) =>
+    invoke<Record<string, string[]>>("doctor_find_candidates", { names }),
+  doctorRelink: (projectId: number, relinks: Relink[]) =>
+    invoke<RelinkReport>("doctor_relink", { projectId, relinks }),
+  doctorPlugins: () => invoke<PluginUse[]>("doctor_plugins"),
 };
 
 /** Erreur d'installation : la bibliothèque utilisateur de Live n'est pas à sa place habituelle. */
