@@ -2,10 +2,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { api, CaptureStatus, Filter, ProjectSummary, Root, ScanProgress, VaultInfo } from "./api";
 import Explorer from "./components/Explorer";
-import PreviewPlayer from "./components/PreviewPlayer";
+import CommandPalette, { PaletteAction, ShortcutsHelp } from "./components/CommandPalette";
+import PreviewPlayer, { PlayerHandle } from "./components/PreviewPlayer";
 import SettingsDialog, { DEFAULT_ROOT } from "./components/SettingsDialog";
-import Toasts, { toast } from "./components/Toasts";
+import Toasts, { toast, toastError } from "./components/Toasts";
 import Workspace from "./components/Workspace";
+import { emit, useShortcuts } from "./shortcuts";
 import "./ui.css";
 
 const SELECTED_KEY = "app.selected";
@@ -31,6 +33,25 @@ export default function App() {
   const [capture, setCapture] = useState<CaptureStatus | null>(null);
   const [playing, setPlaying] = useState<ProjectSummary | null>(null);
   const [settings, setSettings] = useState(false);
+  const [palette, setPalette] = useState(false);
+  const [help, setHelp] = useState(false);
+
+  // Écoute enchaînée : quand la sélection change pendant une lecture, le lecteur
+  // passe au projet suivant et reprend au même endroit relatif.
+  /** Fraction de la durée où en est la lecture. */
+  const playRatio = useRef(0);
+  /** Le lecteur joue (ou va rejouer : changement de projet en cours). */
+  const audioActive = useRef(false);
+  const switching = useRef(false);
+  const [playStart, setPlayStart] = useState<number | undefined>(undefined);
+  const player = useRef<PlayerHandle | null>(null);
+
+  function play(p: ProjectSummary | null, ratio?: number) {
+    switching.current = p !== null && ratio !== undefined;
+    if (p === null) audioActive.current = false;
+    setPlayStart(ratio);
+    setPlaying(p);
+  }
 
   function setSelected(id: number) {
     setSelectedState(id);
@@ -91,6 +112,44 @@ export default function App() {
     if (projects.length > 0 && (selected === null || gone)) setSelected(projects[0].id);
   }, [projects]);
 
+  useEffect(() => {
+    if (!audioActive.current || !playing || selected === null || playing.id === selected) return;
+    const next = projects.find((p) => p.id === selected);
+    // Sans aperçu, on ne coupe pas : le projet précédent continue.
+    if (next?.preview_hash && next.preview_hash !== playing.preview_hash) play(next, playRatio.current);
+  }, [selected]);
+
+  /** Projet sélectionné, même s'il n'est pas dans la liste filtrée. */
+  async function selectedProject(): Promise<ProjectSummary | null> {
+    if (selected === null) return null;
+    return projects.find((p) => p.id === selected) ?? (await api.getProject(selected));
+  }
+
+  async function togglePlay() {
+    if (playing && playing.id === selected && player.current) {
+      player.current.toggle();
+      return;
+    }
+    const p = await selectedProject();
+    if (!p) return;
+    if (!p.preview_hash) {
+      toast(`« ${p.name} » n'a pas encore d'aperçu`);
+      return;
+    }
+    play(p);
+  }
+
+  function openInLive() {
+    if (selected !== null) api.openInAbleton(selected).catch(toastError("Ouverture impossible"));
+  }
+
+  useShortcuts({
+    togglePlay,
+    palette: () => setPalette((v) => !v),
+    openInLive,
+    help: () => setHelp(true),
+  });
+
   async function scan() {
     setScanning(true);
     try {
@@ -107,6 +166,53 @@ export default function App() {
       setScanning(false);
       setProgress(null);
     }
+  }
+
+  function paletteActions(): PaletteAction[] {
+    const current = projects.find((p) => p.id === selected);
+    const hint = current?.name;
+    const none = selected === null;
+    return [
+      { id: "live", label: "Ouvrir dans Live", hint, disabled: none, keywords: "ableton ctrl+o", run: openInLive },
+      {
+        id: "folder",
+        label: "Ouvrir le dossier du projet",
+        hint,
+        disabled: none,
+        keywords: "explorateur",
+        run: () => api.openFolder(selected!).catch(toastError("Dossier introuvable")),
+      },
+      {
+        id: "play",
+        label: "Écouter / arrêter l'aperçu",
+        hint,
+        disabled: none,
+        keywords: "lecture espace",
+        run: togglePlay,
+      },
+      {
+        id: "render",
+        label: "Rendu complet de l'aperçu",
+        hint,
+        disabled: none,
+        keywords: "enregistrer bounce",
+        run: () =>
+          api.renderPreview(selected!).then(
+            () => toast("Rendu complet lancé dans Live"),
+            toastError("Rendu impossible"),
+          ),
+      },
+      { id: "scan", label: "Scanner les dossiers", disabled: scanning || roots.length === 0, keywords: "rechercher nouveaux", run: scan },
+      { id: "settings", label: "Réglages", keywords: "dossiers coffre capture", run: () => setSettings(true) },
+      {
+        id: "doctor",
+        label: "Santé de la bibliothèque",
+        keywords: "docteur samples manquants plugins",
+        run: () => emit("am:open-doctor"),
+      },
+      { id: "search", label: "Rechercher dans la bibliothèque", keywords: "filtre /", run: () => emit("am:focus-search") },
+      { id: "help", label: "Raccourcis clavier", keywords: "aide ?", run: () => setHelp(true) },
+    ];
   }
 
   const captureState = !capture?.listening
@@ -164,7 +270,7 @@ export default function App() {
           selected={selected}
           onSelect={setSelected}
           playing={playing?.id ?? null}
-          onPlay={(p) => setPlaying(playing?.id === p.id ? null : p)}
+          onPlay={(p) => play(playing?.id === p.id ? null : p)}
           onChanged={refresh}
           onMessage={(m) => toast(m)}
         />
@@ -175,7 +281,7 @@ export default function App() {
               <strong title={playing.folder}>{playing.name}</strong>
               <button
                 className="icon"
-                onClick={() => setPlaying(null)}
+                onClick={() => play(null)}
                 aria-label="Fermer le lecteur"
               >
                 ×
@@ -185,6 +291,19 @@ export default function App() {
               key={playing.preview_hash}
               hash={playing.preview_hash}
               tempo={playing.tempo}
+              startRatio={playStart}
+              handle={player}
+              onTime={(t, d) => {
+                if (d > 0) playRatio.current = t / d;
+              }}
+              onPlayingChange={(on) => {
+                if (on) {
+                  switching.current = false;
+                  audioActive.current = true;
+                } else if (!switching.current) {
+                  audioActive.current = false;
+                }
+              }}
               autoPlay
               compact
             />
@@ -224,6 +343,15 @@ export default function App() {
       )}
 
       <Toasts />
+
+      {palette && (
+        <CommandPalette
+          actions={paletteActions()}
+          onSelectProject={setSelected}
+          onClose={() => setPalette(false)}
+        />
+      )}
+      {help && <ShortcutsHelp onClose={() => setHelp(false)} />}
 
       {settings && (
         <SettingsDialog
