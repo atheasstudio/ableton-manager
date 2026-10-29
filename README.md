@@ -56,6 +56,8 @@ Le device n'enregistre que si l'appli tourne : il parle à l'appli en OSC sur `1
 ## Explorateur
 
 - Tris : plus récents, plus travaillés (temps passé dans Live), dernière session, nom, BPM, dossier, statut. Le tri choisi est gardé d'un lancement à l'autre.
+- Collections intelligentes, en haut de l'explorateur : « + » enregistre le filtre courant sous un nom ; un clic applique la collection (un second clic la retire), clic droit pour la renommer, la remplacer par le filtre courant ou la supprimer. Trois collections sont proposées au départ : « Touchés cette semaine », « Oubliés depuis 3 mois », « En cours ».
+- Les filtres sans menu dédié (période de travail, plugin…) s'affichent en pastilles sous les filtres ; × pour en retirer un.
 
 ## Développer
 
