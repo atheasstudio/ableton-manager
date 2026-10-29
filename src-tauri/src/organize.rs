@@ -94,7 +94,7 @@ mod tests {
     fn moves_set_with_its_samples_and_backups() {
         let dir = tempfile::tempdir().unwrap();
         let conn = db::open(&dir.path().join("library.db")).unwrap();
-        let folder = dir.path().join("Projets/beats");
+        let folder = dir.path().join("Projets").join("beats");
         let als = folder.join("woodkid.als");
         fs::create_dir_all(folder.join("Samples/Recorded")).unwrap();
         fs::create_dir_all(folder.join("Backup")).unwrap();
@@ -120,7 +120,7 @@ mod tests {
         }
 
         let moved = move_to_own_folder(&conn, 1).unwrap();
-        let dest = dir.path().join("Projets/woodkid Project");
+        let dest = dir.path().join("Projets").join("woodkid Project");
         assert_eq!(moved.folder, dest.to_string_lossy());
         assert_eq!(moved.copied, 1);
         assert!(dest.join("woodkid.als").is_file() && !als.exists());
