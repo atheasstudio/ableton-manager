@@ -135,6 +135,8 @@ pub struct LiveSet {
     /// Fichiers audio référencés, sans doublons.
     pub samples: Vec<Sample>,
     pub locators: Vec<Locator>,
+    /// Fin du dernier clip de l'arrangement, en beats (durée du morceau).
+    pub arrangement_end: Option<f64>,
 }
 
 impl LiveSet {
@@ -233,6 +235,13 @@ impl Parser {
         self.stack.last().map(String::as_str)
     }
 
+    /// Clip posé dans l'arrangement (pas dans une case de la vue Session).
+    fn in_arrangement_clip(&self) -> bool {
+        ["AudioClip", "MidiClip"]
+            .iter()
+            .any(|clip| self.under(&["ArrangerAutomation", "Events", clip]))
+    }
+
     fn under_main_mixer(&self, param: &str) -> bool {
         // « MasterTrack » jusqu'à Live 11, « MainTrack » depuis Live 12.
         ["MainTrack", "MasterTrack"]
@@ -303,6 +312,13 @@ impl Parser {
                     }
                 }
                 _ => {}
+            }
+        }
+
+        if tag == "CurrentEnd" && self.in_arrangement_clip() {
+            if let Some(end) = value().and_then(|v| v.parse::<f64>().ok()) {
+                let previous = self.set.arrangement_end.unwrap_or(end);
+                self.set.arrangement_end = Some(previous.max(end));
             }
         }
 
