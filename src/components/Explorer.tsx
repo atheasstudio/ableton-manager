@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ask, open } from "@tauri-apps/plugin-dialog";
-import { api, Filter, formatDate, ProjectSummary, STATUS_LABELS, Status } from "../api";
+import { api, Filter, formatAgo, formatDate, formatDuration, ProjectSummary, STATUS_LABELS, Status } from "../api";
 import ContextMenu, { MenuItem, MenuState } from "./ContextMenu";
 
-type Sort = "recent" | "name" | "tempo" | "folder" | "status";
+type Sort = "recent" | "worked" | "session" | "name" | "tempo" | "folder" | "status";
 const SORTS: Record<Sort, string> = {
   recent: "Plus récents",
+  worked: "Plus travaillés",
+  session: "Dernière session",
   name: "Nom A → Z",
   tempo: "BPM",
   folder: "Dossier A → Z",
@@ -67,6 +69,10 @@ export default function Explorer(props: Props) {
   const sorted = useMemo(() => {
     const cmp: Record<Sort, (a: ProjectSummary, b: ProjectSummary) => number> = {
       recent: (a, b) => b.modified_at - a.modified_at,
+      // Temps passé dans Live ; à égalité (souvent 0), les plus récents d'abord.
+      worked: (a, b) => b.time_spent - a.time_spent || b.modified_at - a.modified_at,
+      // Jamais travaillés en dernier.
+      session: (a, b) => (b.last_worked_at ?? 0) - (a.last_worked_at ?? 0) || b.modified_at - a.modified_at,
       name: (a, b) => collator.compare(a.name, b.name),
       tempo: (a, b) => (a.tempo ?? 1e9) - (b.tempo ?? 1e9) || collator.compare(a.name, b.name),
       folder: (a, b) => collator.compare(a.folder, b.folder) || collator.compare(a.name, b.name),
@@ -218,7 +224,13 @@ export default function Explorer(props: Props) {
         <small>
           <span className={`sdot ${p.status}`} title={STATUS_LABELS[p.status]} />
           {p.tempo ? `${p.tempo} BPM · ` : ""}
-          {formatDate(p.modified_at)}
+          {sort === "worked"
+            ? formatDuration(p.time_spent)
+            : sort === "session"
+              ? p.last_worked_at
+                ? formatAgo(p.last_worked_at)
+                : "jamais travaillé"
+              : formatDate(p.modified_at)}
           {p.tags.length > 0 && ` · ${p.tags.join(", ")}`}
         </small>
       </div>

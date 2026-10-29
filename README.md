@@ -53,6 +53,10 @@ Le device n'enregistre que si l'appli tourne : il parle à l'appli en OSC sur `1
 - Comparaison de deux versions, à l'écoute aussi.
 - Supprimer une version rattache ses enfants à sa parente et libère les fichiers que plus rien n'utilise.
 
+## Explorateur
+
+- Tris : plus récents, plus travaillés (temps passé dans Live), dernière session, nom, BPM, dossier, statut. Le tri choisi est gardé d'un lancement à l'autre.
+
 ## Développer
 
 Prérequis : [Rust](https://rustup.rs), Node 22 et les [prérequis Tauri](https://tauri.app/start/prerequisites/) (WebView2 est déjà présent sur Windows 10/11).
