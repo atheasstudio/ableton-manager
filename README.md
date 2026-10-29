@@ -58,6 +58,8 @@ Le device n'enregistre que si l'appli tourne : il parle à l'appli en OSC sur `1
 - Tris : plus récents, plus travaillés (temps passé dans Live), dernière session, nom, BPM, dossier, statut. Le tri choisi est gardé d'un lancement à l'autre.
 - Collections intelligentes, en haut de l'explorateur : « + » enregistre le filtre courant sous un nom ; un clic applique la collection (un second clic la retire), clic droit pour la renommer, la remplacer par le filtre courant ou la supprimer. Trois collections sont proposées au départ : « Touchés cette semaine », « Oubliés depuis 3 mois », « En cours ».
 - Vue en cartes (bouton ▦ / ☰, choix gardé) : mini forme d'onde de l'aperçu (chargée seulement pour les cartes visibles), statut, BPM, temps passé, dernière ouverture dans Live. Les sets d'un même dossier restent regroupés et ↑ ↓ passent d'une carte à l'autre.
+- Clic droit sur un projet : changer de statut, retirer un tag, masquer… L'action est faite tout de suite et une notification propose « Annuler ». La mise à la corbeille demande confirmation, puis n'a lieu qu'à la fin de la notification (« Annuler » l'abandonne).
+- Raccourcis : ↑ ↓ dans la liste ; / (recherche) et F (favori du projet choisi) sont gérés par l'appli.
 - Les filtres sans menu dédié (période de travail, plugin…) s'affichent en pastilles sous les filtres ; × pour en retirer un.
 
 ## Développer
