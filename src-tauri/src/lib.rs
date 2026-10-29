@@ -6,6 +6,7 @@ mod db;
 mod live;
 mod live_window;
 mod notes;
+mod organize;
 mod previews;
 mod scanner;
 mod vault;
@@ -86,6 +87,7 @@ pub fn run() {
             commands::compare_versions,
             commands::open_branch,
             commands::open_branch_folder,
+            commands::move_to_own_folder,
             commands::vault_info,
             commands::set_vault_dir,
             commands::get_preview,

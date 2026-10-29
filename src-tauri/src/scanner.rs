@@ -1,7 +1,8 @@
 //! Recherche des projets Ableton sur le disque.
 //!
-//! Un projet = un dossier qui contient au moins un `.als`. Le `.als` le plus
-//! récent du dossier est le set principal ; les autres sont listés à côté.
+//! Un projet = un `.als`. Plusieurs sets rangés dans le même dossier sont des
+//! morceaux différents : chacun devient un projet, regroupé par dossier dans
+//! l'explorateur.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -33,12 +34,15 @@ pub struct FoundProject {
 }
 
 impl FoundProject {
-    /// Nom affiché : celui du dossier sans le suffixe « Project » ajouté par Live.
+    /// Nom affiché : celui du dossier sans le suffixe « Project » ajouté par
+    /// Live quand le set y est seul, sinon celui du set.
     pub fn name(&self) -> String {
         let folder = self.folder.file_name().map(|n| n.to_string_lossy().into_owned());
         let set = self.main_set.file_stem().map(|n| n.to_string_lossy().into_owned());
         match folder {
-            Some(f) if f.ends_with(" Project") => f.trim_end_matches(" Project").to_owned(),
+            Some(f) if self.other_sets.is_empty() && f.ends_with(" Project") => {
+                f.trim_end_matches(" Project").to_owned()
+            }
             _ => set.unwrap_or_default(),
         }
     }
@@ -60,7 +64,8 @@ fn mtime(path: &Path) -> i64 {
         .map_or(0, |d| d.as_secs() as i64)
 }
 
-/// Parcourt `root` et regroupe les `.als` par dossier. Les dossiers illisibles
+/// Parcourt `root` : un projet par `.als`, chacun connaissant les autres sets
+/// de son dossier. Les dossiers illisibles
 /// (droits, disque débranché) sont ignorés sans arrêter le scan.
 pub fn find_projects(root: &Path) -> Vec<FoundProject> {
     let mut by_folder: BTreeMap<PathBuf, Vec<(PathBuf, i64)>> = BTreeMap::new();
@@ -76,19 +81,19 @@ pub fn find_projects(root: &Path) -> Vec<FoundProject> {
         }
     }
 
-    by_folder
-        .into_iter()
-        .map(|(folder, mut sets)| {
-            sets.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-            let (main_set, modified_at) = sets.remove(0);
-            FoundProject {
-                folder,
-                main_set,
-                modified_at,
-                other_sets: sets.into_iter().map(|(p, _)| p).collect(),
-            }
-        })
-        .collect()
+    let mut found = Vec::new();
+    for (folder, mut sets) in by_folder {
+        sets.sort();
+        for (main_set, modified_at) in &sets {
+            found.push(FoundProject {
+                folder: folder.clone(),
+                main_set: main_set.clone(),
+                modified_at: *modified_at,
+                other_sets: sets.iter().filter(|s| &s.0 != main_set).map(|s| s.0.clone()).collect(),
+            });
+        }
+    }
+    found
 }
 
 #[cfg(test)]
@@ -97,7 +102,7 @@ mod tests {
     use std::fs;
 
     #[test]
-    fn groups_by_folder_and_skips_backups() {
+    fn one_project_per_set_and_skips_backups() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         let a = root.join("Projets/1woodkid perc Project");
@@ -113,8 +118,9 @@ mod tests {
 
         let found = find_projects(root);
         let names: Vec<_> = found.iter().map(|p| p.name()).collect();
-        assert_eq!(names, ["1woodkid perc", "dsd"]);
+        assert_eq!(names, ["1woodkid perc", "2gdfggdfgdf", "sdf"]);
         assert!(found[0].other_sets.is_empty(), "les Backup sont ignorés");
-        assert_eq!(found[1].other_sets.len(), 1);
+        assert_eq!(found[1].other_sets, [b.join("sdf.als")]);
+        assert_eq!(found[2].other_sets, [b.join("2gdfggdfgdf.als")]);
     }
 }

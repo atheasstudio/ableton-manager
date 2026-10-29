@@ -577,10 +577,9 @@ pub fn create_branch(conn: &Connection, vault: &Vault, id: i64, name: &str, now:
         return other(format!("la branche « {name} » existe déjà"));
     }
     let main = all.iter().find(|b| b.is_main).map_or_else(|| other("branche principale introuvable"), Ok)?;
-    let main_folder = Path::new(&main.folder);
-    let base = main_folder.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let base = base.strip_suffix(" Project").unwrap_or(&base);
-    let folder = main_folder.with_file_name(format!("{base} - {folder_part} Project"));
+    // Nom du projet, pas du dossier : plusieurs sets peuvent partager un dossier.
+    let base: String = conn.query_row("SELECT name FROM projects WHERE id = ?1", [v.project_id], |r| r.get(0))?;
+    let folder = Path::new(&main.folder).with_file_name(format!("{} - {folder_part} Project", safe_name(&base)));
     if folder.exists() {
         return other(format!("le dossier {} existe déjà", folder.display()));
     }

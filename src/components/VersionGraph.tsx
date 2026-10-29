@@ -41,6 +41,8 @@ interface Props {
   /** Versions cochées pour la comparaison (Maj + clic). */
   checked: number[];
   onToggleCheck: (id: number) => void;
+  /** Ouvre le set d'une branche dans Live. */
+  onOpenBranch: (branchId: number) => void;
   onAddNote: (versionId: number | null, x: number, y: number) => Promise<TreeNote>;
   onUpdateNote: (note: TreeNote) => void;
   onDeleteNote: (id: number) => void;
@@ -360,9 +362,17 @@ export default function VersionGraph(props: Props) {
               <div
                 key={b.id}
                 className="glane-label"
-                style={{ left: x, top: i * LANE - 24, color: laneColor(branches, b.id) }}
+                style={{ left: x, top: i * LANE - 30, color: laneColor(branches, b.id) }}
               >
                 {b.name}
+                <button
+                  className="glane-open graph-ui"
+                  style={{ borderColor: laneColor(branches, b.id) }}
+                  onClick={() => props.onOpenBranch(b.id)}
+                  title={`Ouvrir le set de « ${b.name} » dans Live`}
+                >
+                  ▶ Ouvrir dans Live
+                </button>
               </div>
             );
           })}
@@ -374,8 +384,15 @@ export default function VersionGraph(props: Props) {
               style={{ left: g.x, top: g.y, borderColor: laneColor(branches, g.branch.id) }}
               title="Branche créée, pas encore de sauvegarde"
             >
-              <span>{g.branch.name}</span>
+              <span className="gnode-name">{g.branch.name}</span>
               <small>pas encore de sauvegarde</small>
+              <button
+                className="gnode-open"
+                style={{ background: laneColor(branches, g.branch.id) }}
+                onClick={() => props.onOpenBranch(g.branch.id)}
+              >
+                ▶ Ouvrir dans Live
+              </button>
             </div>
           ))}
 
@@ -495,7 +512,7 @@ export default function VersionGraph(props: Props) {
       </div>
       <p className="graph-help graph-ui">
         Glisser : se déplacer · Molette : zoom · Double-clic dans le vide : note · Maj + clic :
-        comparer · ← → : versions
+        comparer · ← → : versions · ▶ Ouvrir dans Live : travailler sur une branche
       </p>
     </div>
   );

@@ -1,43 +1,50 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { ask, open } from "@tauri-apps/plugin-dialog";
-import {
-  api,
-  CaptureStatus,
-  Filter,
-  NO_USER_LIBRARY,
-  formatSize,
-  ProjectSummary,
-  Root,
-  ScanProgress,
-  STATUS_LABELS,
-  Status,
-  VaultInfo,
-} from "./api";
-import ProjectList from "./components/ProjectList";
+import { api, CaptureStatus, Filter, ProjectSummary, Root, ScanProgress, VaultInfo } from "./api";
+import Explorer from "./components/Explorer";
 import PreviewPlayer from "./components/PreviewPlayer";
-import ProjectPanel from "./components/ProjectPanel";
+import SettingsDialog, { DEFAULT_ROOT } from "./components/SettingsDialog";
+import Workspace from "./components/Workspace";
 
-/** Dossier proposé au premier lancement. */
-const DEFAULT_ROOT = "F:\\musique\\Projets";
+const SELECTED_KEY = "app.selected";
+
+function savedSelection(): number | null {
+  try {
+    const v = Number(localStorage.getItem(SELECTED_KEY));
+    return v > 0 ? v : null;
+  } catch {
+    return null;
+  }
+}
 
 export default function App() {
   const [roots, setRoots] = useState<Root[]>([]);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [tags, setTags] = useState<string[]>([]);
   const [filter, setFilter] = useState<Filter>({});
-  const [selected, setSelected] = useState<number | null>(null);
+  const [selected, setSelectedState] = useState<number | null>(savedSelection);
   const [progress, setProgress] = useState<ScanProgress | null>(null);
   const [scanning, setScanning] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [vault, setVault] = useState<VaultInfo | null>(null);
-  const [movingVault, setMovingVault] = useState(false);
   const [capture, setCapture] = useState<CaptureStatus | null>(null);
-  const [deviceMessage, setDeviceMessage] = useState<string | null>(null);
   const [playing, setPlaying] = useState<ProjectSummary | null>(null);
+  const [settings, setSettings] = useState(false);
+
+  function setSelected(id: number) {
+    setSelectedState(id);
+    try {
+      localStorage.setItem(SELECTED_KEY, String(id));
+    } catch {
+      // Sélection non gardée : sans gravité.
+    }
+  }
 
   const refreshVault = useCallback(() => {
     api.vaultInfo().then(setVault, () => setVault(null));
+  }, []);
+  const refreshRoots = useCallback(() => {
+    api.listRoots().then(setRoots);
   }, []);
 
   const refresh = useCallback(async () => {
@@ -46,7 +53,7 @@ export default function App() {
   }, [filter]);
 
   useEffect(() => {
-    api.listRoots().then(setRoots);
+    refreshRoots();
     refreshVault();
     const unlisten = listen<ScanProgress>("scan-progress", (e) => setProgress(e.payload));
     const pollCapture = () => api.captureStatus().then(setCapture, () => setCapture(null));
@@ -68,29 +75,12 @@ export default function App() {
     refresh();
   }, [refresh]);
 
-  async function installDevice() {
-    setDeviceMessage(null);
-    try {
-      let path: string;
-      try {
-        path = await api.installDevice();
-      } catch (e) {
-        if (String(e) !== NO_USER_LIBRARY) throw e;
-        const dir = await open({
-          directory: true,
-          title: "Dossier « User Library » de Live (Réglages > Bibliothèque)",
-        });
-        if (typeof dir !== "string") return;
-        path = await api.installDevice(dir);
-      }
-      setDeviceMessage(
-        `Installé : ${path}. Dans Live, glisse « Ableton Manager Capture » (User Library > Presets > ` +
-          "Audio Effects > Max Audio Effect) sur le Master, puis enregistre-le dans ton set par défaut.",
-      );
-    } catch (e) {
-      setDeviceMessage(`Erreur : ${e}`);
-    }
-  }
+  // Rien de choisi (premier lancement) ou projet disparu : le plus récent.
+  useEffect(() => {
+    const unfiltered = !filter.query && !filter.status && !filter.tag && !filter.favorites_only;
+    const gone = unfiltered && !projects.some((p) => p.id === selected);
+    if (projects.length > 0 && (selected === null || gone)) setSelected(projects[0].id);
+  }, [projects]);
 
   async function scan() {
     setScanning(true);
@@ -111,177 +101,66 @@ export default function App() {
     }
   }
 
-  async function addRoot() {
-    const dir = await open({ directory: true, title: "Dossier de projets Ableton" });
-    if (typeof dir !== "string") return;
-    await api.addRoot(dir);
-    setRoots(await api.listRoots());
-  }
-
-  async function addDefaultRoot() {
-    await api.addRoot(DEFAULT_ROOT);
-    setRoots(await api.listRoots());
-  }
-
-  async function moveVault() {
-    const dir = await open({ directory: true, title: "Dossier du coffre (idéalement un disque dédié)" });
-    if (typeof dir !== "string") return;
-    const ok = await ask(`Déplacer le coffre vers ${dir} ? Les fichiers déjà rangés y sont déplacés.`, {
-      title: "Déplacer le coffre",
-      okLabel: "Déplacer",
-      cancelLabel: "Annuler",
-    });
-    if (!ok) return;
-    setMovingVault(true);
-    try {
-      await api.setVaultDir(dir);
-    } catch (e) {
-      setMessage(`Erreur : ${e}`);
-    } finally {
-      setMovingVault(false);
-      refreshVault();
-    }
-  }
-
-  async function removeRoot(id: number) {
-    await api.removeRoot(id);
-    setRoots(await api.listRoots());
-  }
+  const captureState = !capture?.listening
+    ? "off"
+    : capture.device
+      ? capture.recording
+        ? "rec"
+        : "on"
+      : "off";
 
   return (
     <div className="app">
-      <aside className="sidebar">
-        <h1>Ableton Manager</h1>
-
-        <section>
-          <h2>Dossiers scannés</h2>
-          {roots.length === 0 && (
-            <button className="link" onClick={addDefaultRoot}>
-              + {DEFAULT_ROOT}
-            </button>
-          )}
-          <ul className="roots">
-            {roots.map((r) => (
-              <li key={r.id} title={r.path}>
-                <span>{r.path}</span>
-                <button className="icon" onClick={() => removeRoot(r.id)} aria-label="Retirer">
-                  ×
-                </button>
-              </li>
-            ))}
-          </ul>
-          <button onClick={addRoot}>Ajouter un dossier ou un disque…</button>
-          <button className="primary" onClick={scan} disabled={scanning || roots.length === 0}>
-            {scanning ? "Scan en cours…" : "Scanner"}
-          </button>
-          {progress && (
-            <div className="progress">
-              <progress value={progress.done} max={progress.total} />
-              <small>{progress.current}</small>
-            </div>
-          )}
-          {message && <p className="message">{message}</p>}
-        </section>
-
-        <section>
-          <h2>Statut</h2>
-          <select
-            value={filter.status ?? ""}
-            onChange={(e) =>
-              setFilter({ ...filter, status: (e.target.value || undefined) as Status | undefined })
-            }
+      <aside className="explorer">
+        <header className="explorer-head">
+          <h1>Ableton Manager</h1>
+          <button
+            onClick={scan}
+            disabled={scanning || roots.length === 0}
+            title="Rechercher les projets nouveaux ou modifiés"
           >
-            <option value="">Tous</option>
-            {Object.entries(STATUS_LABELS).map(([k, label]) => (
-              <option key={k} value={k}>
-                {label}
-              </option>
-            ))}
-          </select>
-          <label className="check">
-            <input
-              type="checkbox"
-              checked={!!filter.favorites_only}
-              onChange={(e) => setFilter({ ...filter, favorites_only: e.target.checked })}
-            />
-            Favoris seulement
-          </label>
-        </section>
-
-        <section>
-          <h2>Coffre des versions</h2>
-          {vault && (
-            <>
-              <p className="path" title={vault.path}>
-                {vault.path}
-              </p>
-              <small className="message">
-                {vault.files} fichiers · {formatSize(vault.bytes)}
-              </small>
-            </>
-          )}
-          <button onClick={moveVault} disabled={movingVault}>
-            {movingVault ? "Déplacement…" : "Changer de dossier…"}
+            {scanning ? "Scan…" : "Scanner"}
           </button>
-        </section>
-
-        <section>
-          <h2>Pré-écoute</h2>
-          <small className="message">
-            {!capture?.listening
-              ? "Port de capture occupé : une autre instance de l'appli tourne ?"
-              : capture.device
-                ? capture.recording
-                  ? "● Écoute en cours d'enregistrement"
-                  : "Device de capture connecté"
-                : "Device de capture non détecté dans Live"}
-          </small>
-          {capture?.open_set && (
-            <small className="message" title="Set ouvert dans Live">
-              Live : {capture.open_set}
-            </small>
-          )}
-          <button onClick={installDevice}>Installer le device…</button>
-          {deviceMessage && <p className="message">{deviceMessage}</p>}
-        </section>
-
-        {tags.length > 0 && (
-          <section>
-            <h2>Tags</h2>
-            <div className="tags">
-              {tags.map((t) => (
-                <button
-                  key={t}
-                  className={`tag ${filter.tag === t ? "active" : ""}`}
-                  onClick={() => setFilter({ ...filter, tag: filter.tag === t ? undefined : t })}
-                >
-                  {t}
-                </button>
-              ))}
-            </div>
-          </section>
+          <button
+            className="icon settings-btn"
+            onClick={() => setSettings(true)}
+            title="Réglages : dossiers, coffre, pré-écoute"
+            aria-label="Réglages"
+          >
+            ⚙<span className={`dot ${captureState}`} />
+          </button>
+        </header>
+        {progress && (
+          <div className="progress">
+            <progress value={progress.done} max={progress.total} />
+            <small>{progress.current}</small>
+          </div>
         )}
-      </aside>
+        {message && <p className="message">{message}</p>}
 
-      <main className="main">
-        <input
-          className="search"
-          type="search"
-          placeholder="Chercher un projet, un plugin, un sample, un tag…"
-          value={filter.query ?? ""}
-          onChange={(e) => setFilter({ ...filter, query: e.target.value })}
-          autoFocus
-        />
-        <ProjectList
+        <Explorer
           projects={projects}
+          tags={tags}
+          filter={filter}
+          onFilter={setFilter}
           selected={selected}
           onSelect={setSelected}
           playing={playing?.id ?? null}
-          onPlay={(p) => setPlaying(p)}
+          onPlay={(p) => setPlaying(playing?.id === p.id ? null : p)}
         />
+
         {playing?.preview_hash && (
           <div className="now-playing">
-            <strong title={playing.folder}>{playing.name}</strong>
+            <div className="now-playing-head">
+              <strong title={playing.folder}>{playing.name}</strong>
+              <button
+                className="icon"
+                onClick={() => setPlaying(null)}
+                aria-label="Fermer le lecteur"
+              >
+                ×
+              </button>
+            </div>
             <PreviewPlayer
               key={playing.preview_hash}
               hash={playing.preview_hash}
@@ -289,19 +168,51 @@ export default function App() {
               autoPlay
               compact
             />
-            <button className="icon" onClick={() => setPlaying(null)} aria-label="Fermer le lecteur">
-              ×
-            </button>
           </div>
         )}
-      </main>
+      </aside>
 
-      {selected !== null && (
-        <ProjectPanel
-          id={selected}
-          onClose={() => setSelected(null)}
-          onChange={refresh}
+      {selected !== null ? (
+        <Workspace id={selected} onChange={refresh} onVaultChange={refreshVault} />
+      ) : (
+        <main className="workspace welcome">
+          <h2>Bienvenue</h2>
+          {roots.length === 0 ? (
+            <>
+              <p>Indique où sont tes projets Ableton, puis lance un scan.</p>
+              <div className="actions">
+                <button
+                  className="primary"
+                  onClick={() => api.addRoot(DEFAULT_ROOT).then(refreshRoots)}
+                >
+                  Utiliser {DEFAULT_ROOT}
+                </button>
+                <button onClick={() => setSettings(true)}>Choisir un autre dossier…</button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p>Choisis un projet à gauche, ou lance un scan pour trouver tes projets.</p>
+              <div className="actions">
+                <button className="primary" onClick={scan} disabled={scanning}>
+                  {scanning ? "Scan en cours…" : "Scanner"}
+                </button>
+              </div>
+            </>
+          )}
+        </main>
+      )}
+
+      {settings && (
+        <SettingsDialog
+          roots={roots}
+          onRootsChange={refreshRoots}
+          scanning={scanning}
+          onScan={scan}
+          vault={vault}
           onVaultChange={refreshVault}
+          capture={capture}
+          onClose={() => setSettings(false)}
         />
       )}
     </div>
