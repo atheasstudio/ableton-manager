@@ -134,6 +134,18 @@ export interface VaultInfo {
   bytes: number;
 }
 
+/** Note posée dans l'espace de l'arbre des versions. */
+export interface TreeNote {
+  id: number;
+  /** Version à laquelle la note est accrochée (elle la suit). */
+  version_id: number | null;
+  /** Décalage par rapport à la version, ou position si la note est libre. */
+  x: number;
+  y: number;
+  text: string;
+  created_at: number;
+}
+
 export const api = {
   listRoots: () => invoke<Root[]>("list_roots"),
   addRoot: (path: string) => invoke<number>("add_root", { path }),
@@ -164,6 +176,19 @@ export const api = {
   openBranchFolder: (branchId: number) => invoke<void>("open_branch_folder", { branchId }),
   vaultInfo: () => invoke<VaultInfo>("vault_info"),
   setVaultDir: (path: string) => invoke<void>("set_vault_dir", { path }),
+
+  listTreeNotes: (projectId: number) => invoke<TreeNote[]>("list_tree_notes", { projectId }),
+  addTreeNote: (projectId: number, versionId: number | null, x: number, y: number, text = "") =>
+    invoke<TreeNote>("add_tree_note", { projectId, versionId, x, y, text }),
+  updateTreeNote: (n: TreeNote) =>
+    invoke<void>("update_tree_note", {
+      id: n.id,
+      versionId: n.version_id,
+      x: n.x,
+      y: n.y,
+      text: n.text,
+    }),
+  deleteTreeNote: (id: number) => invoke<void>("delete_tree_note", { id }),
 };
 
 export function formatDateTime(seconds: number): string {

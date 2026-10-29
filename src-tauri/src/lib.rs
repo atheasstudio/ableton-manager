@@ -1,5 +1,6 @@
 mod commands;
 mod db;
+mod notes;
 mod scanner;
 mod vault;
 mod versions;
@@ -79,6 +80,10 @@ pub fn run() {
             commands::open_branch_folder,
             commands::vault_info,
             commands::set_vault_dir,
+            commands::list_tree_notes,
+            commands::add_tree_note,
+            commands::update_tree_note,
+            commands::delete_tree_note,
         ])
         .run(tauri::generate_context!())
         .expect("erreur au lancement de l'application");

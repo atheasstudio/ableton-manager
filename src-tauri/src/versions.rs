@@ -611,6 +611,8 @@ pub fn delete(conn: &Connection, vault: &Vault, id: i64) -> Result<u64> {
     tx.execute("UPDATE versions SET parent_id = ?2 WHERE parent_id = ?1", params![id, parent])?;
     tx.execute("UPDATE branches SET head_id = ?2 WHERE head_id = ?1", params![id, parent])?;
     tx.execute("UPDATE branches SET base_id = ?2 WHERE base_id = ?1", params![id, parent])?;
+    // Les notes accrochées suivent la version parente.
+    tx.execute("UPDATE tree_notes SET version_id = ?2 WHERE version_id = ?1", params![id, parent])?;
     tx.execute("DELETE FROM versions WHERE id = ?1", [id])?;
     tx.commit()?;
     Ok(collect_garbage(conn, vault)?.1)

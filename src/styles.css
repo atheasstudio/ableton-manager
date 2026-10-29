@@ -7,6 +7,7 @@
   --muted: #9a9a9a;
   --accent: #ff7a2f;
   --danger: #e5534b;
+  --note: #e3b341;
   font-family: "Segoe UI", system-ui, sans-serif;
   font-size: 14px;
   color: var(--text);
@@ -107,7 +108,7 @@ button.link { background: none; border: none; padding: 0; color: var(--accent); 
 .kind { font-size: 11px; color: var(--muted); display: inline-block; width: 48px; }
 .missing { color: var(--danger); }
 
-.panel.wide { width: 520px; }
+.panel.wide { width: 640px; }
 .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); }
 .tabs button { background: none; border: none; border-bottom: 2px solid transparent; border-radius: 0; color: var(--muted); }
 .tabs button.active { color: var(--text); border-bottom-color: var(--accent); }
@@ -129,17 +130,6 @@ button.danger:hover:not(:disabled) { border-color: var(--danger); color: var(--d
 .branch-form { display: flex; gap: 6px; }
 .branch-form input { flex: 1; }
 
-.tree { position: relative; padding-left: var(--lanes-width); }
-.tree-lines { position: absolute; left: 0; top: 0; }
-.tree ul { list-style: none; margin: 0 !important; padding: 0 !important; }
-.tree li { display: flex; align-items: center; gap: 8px; padding: 0 6px !important; border-radius: 4px; cursor: pointer; }
-.tree li:hover { background: var(--surface-2); }
-.tree li.selected { background: var(--surface-2); outline: 1px solid var(--border); }
-.tree li input { padding: 0; margin: 0; }
-.version-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.version-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.version-text small { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.branch-chip { font-size: 11px; padding: 1px 6px; border: 1px solid; border-radius: 10px; white-space: nowrap; }
 
 .overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); display: flex; align-items: center; justify-content: center; z-index: 10; }
 .dialog { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; width: min(720px, 90vw); max-height: 85vh; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
@@ -155,3 +145,46 @@ button.danger:hover:not(:disabled) { border-color: var(--danger); color: var(--d
 .diff-list { list-style: none; margin: 0; padding: 0; }
 .diff-list .added { color: #57ab5a; }
 .diff-list .removed { color: var(--danger); }
+
+/* Arbre des versions en 2D */
+.graph { position: relative; flex: 1; min-height: 460px; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--bg); }
+.graph.fullscreen { position: fixed; inset: 0; z-index: 20; border: none; border-radius: 0; }
+.graph-viewport {
+  position: relative; flex: 1; overflow: hidden; cursor: grab; outline: none; touch-action: none;
+  background-image: radial-gradient(circle, var(--border) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+.graph-viewport:active { cursor: grabbing; }
+.graph-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.graph-edges { position: absolute; overflow: visible; pointer-events: none; }
+.glane-label { position: absolute; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap; }
+.gnode {
+  position: absolute; width: 190px; height: 58px; padding: 7px 10px; display: flex; flex-direction: column; justify-content: center;
+  background: var(--surface); border: 2px solid; border-radius: 8px; cursor: pointer; user-select: none;
+}
+.gnode:hover { background: var(--surface-2); }
+.gnode.backup { border-style: dashed; }
+.gnode.selected { box-shadow: 0 0 0 3px var(--text); }
+.gnode.checked { background: var(--surface-2); }
+.gnode.ghost { opacity: 0.6; border-style: dashed; cursor: default; }
+.gnode-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gnode small { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gnode-mark { position: absolute; top: -10px; left: -10px; width: 20px; height: 20px; border-radius: 50%; background: var(--text); color: var(--bg); font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.gnode-head { position: absolute; top: -11px; right: 8px; padding: 1px 7px; border-radius: 10px; color: #111; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.gnote {
+  position: absolute; min-height: 44px; padding: 8px 10px; background: #3a3220; border: 1px solid var(--note); border-radius: 4px;
+  color: #f3e3b0; font-size: 13px; cursor: move; user-select: none; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+.gnote.dragging { opacity: 0.85; }
+.gnote p { margin: 0; white-space: pre-wrap; word-break: break-word; }
+.gnote em { color: #b8a36a; }
+.gnote textarea { width: 100%; min-height: 60px; padding: 0; background: none; border: none; color: inherit; font-size: 13px; resize: vertical; outline: none; }
+.gnote-delete { position: absolute; top: 0; right: 0; color: #b8a36a !important; }
+.gnote-detach { position: absolute; top: 1px; right: 18px; font-size: 11px; color: #b8a36a !important; }
+.graph-overlay { position: absolute; top: 10px; left: 10px; width: min(360px, calc(100% - 20px)); display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+.graph-overlay > * { pointer-events: auto; }
+.graph-overlay .message { background: var(--surface); padding: 4px 8px; border-radius: 4px; }
+.graph-overlay .version-detail { box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5); border: 1px solid var(--border); }
+.graph-toolbar { position: absolute; top: 10px; right: 10px; display: flex; gap: 4px; }
+.graph-toolbar button { padding: 4px 9px; font-size: 12px; background: var(--surface); }
+.graph-help { position: absolute; bottom: 6px; left: 10px; right: 10px; margin: 0; color: var(--muted); font-size: 11px; pointer-events: none; }

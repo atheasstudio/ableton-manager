@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, Branch, Diff, formatDateTime, Version, versionLabel } from "../api";
-import { laneColor } from "./VersionTree";
+import { laneColor } from "./VersionGraph";
 
 interface Props {
   /** Les deux versions, la plus ancienne en premier. */
