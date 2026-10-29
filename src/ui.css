@@ -68,3 +68,6 @@ kbd { display: inline-block; min-width: 18px; padding: 1px 6px; border: 1px soli
 .dropzone p { margin: 0 0 32px; padding: 10px 16px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--accent); font-weight: 600; }
 .dropzone.refused { border-color: var(--muted); background: rgba(0, 0, 0, 0.15); }
 .dropzone.refused p { border-color: var(--border); color: var(--muted); font-weight: 400; }
+
+/* ---------- Barre de gauche ---------- */
+.explorer-head button.doctor-btn { padding: 4px 4px; font-size: 14px; }

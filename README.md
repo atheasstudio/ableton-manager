@@ -82,6 +82,10 @@ Le device n'enregistre que si l'appli tourne : il parle à l'appli en OSC sur `1
 
 Les touches seules ne font rien quand tu tapes dans un champ ou qu'une fenêtre est ouverte. La palette (Ctrl + K) cherche parmi tous les projets (nom, tags, statut, sans tenir compte des accents) et les actions : ouvrir dans Live, ouvrir le dossier, écouter, rendu complet, scanner, réglages, santé de la bibliothèque, et les collections enregistrées (elles appliquent leur filtre à l'explorateur). ↑ ↓ pour choisir, Entrée pour lancer, Échap pour fermer.
 
+### Santé de la bibliothèque
+
+- Le bouton 🩺 de la barre de gauche (ou « Santé de la bibliothèque » dans la palette) ouvre le bilan de la bibliothèque (évènement `am:open-doctor`).
+
 ### Glisser-déposer
 
 - Un dossier glissé depuis l'explorateur Windows sur la fenêtre devient un dossier de la bibliothèque (s'il n'y est pas déjà), puis un scan se lance.

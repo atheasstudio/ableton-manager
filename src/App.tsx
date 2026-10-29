@@ -392,6 +392,14 @@ export default function App() {
             + Capture
           </button>
           <button
+            className="icon doctor-btn"
+            onClick={() => emit("am:open-doctor")}
+            title="Santé de la bibliothèque : samples introuvables, plugins manquants…"
+            aria-label="Santé de la bibliothèque"
+          >
+            🩺
+          </button>
+          <button
             className="icon settings-btn"
             onClick={() => setSettings(true)}
             title="Réglages : dossiers, coffre, pré-écoute"
