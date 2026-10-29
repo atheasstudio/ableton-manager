@@ -76,6 +76,13 @@ Fenêtre ouverte par le bouton « Santé de la bibliothèque » de la barre de g
 - **Plugins** : inventaire de tous les plugins avec le nombre de projets qui les utilisent. Un clic sur un nom filtre l'explorateur (évènement `am:filter-plugin`) ; le nombre de projets déplie la liste « Quels projets utilisent X ? ».
 - Les travaux longs tournent hors du fil de l'interface et envoient leur progression par l'évènement Tauri `doctor-progress`.
 
+## Icône dans la zone de notification
+
+- L'appli place une icône dans la zone de notification de Windows (construite en Rust, `tray.rs`) : clic pour afficher la fenêtre, menu Ouvrir / Scanner / Quitter. « Scanner » scanne en tâche de fond et annonce le résultat dans une notification.
+- La croix de la fenêtre la réduit dans la zone de notification au lieu de quitter (Réglages → Fenêtre ; réglage `close_to_tray`). Pour quitter : menu de l'icône → Quitter.
+- « Lancer au démarrage de Windows » (Réglages → Fenêtre) utilise `tauri-plugin-autostart` : l'appli est lancée avec `--hidden` et reste cachée dans la zone de notification (le suivi du temps et les versions tournent).
+- Une seule instance : relancer l'appli réaffiche la fenêtre de celle qui tourne déjà.
+
 ## Développer
 
 Prérequis : [Rust](https://rustup.rs), Node 22 et les [prérequis Tauri](https://tauri.app/start/prerequisites/) (WebView2 est déjà présent sur Windows 10/11).

@@ -409,6 +409,13 @@ export const api = {
   doctorRelink: (projectId: number, relinks: Relink[]) =>
     invoke<RelinkReport>("doctor_relink", { projectId, relinks }),
   doctorPlugins: () => invoke<PluginUse[]>("doctor_plugins"),
+
+  /** La croix réduit dans la zone de notification au lieu de quitter. */
+  closeToTray: () => invoke<boolean>("close_to_tray"),
+  setCloseToTray: (enabled: boolean) => invoke<void>("set_close_to_tray", { enabled }),
+  /** Lancement au démarrage de Windows (fenêtre cachée). */
+  autostartEnabled: () => invoke<boolean>("autostart_enabled"),
+  setAutostartEnabled: (enabled: boolean) => invoke<void>("set_autostart_enabled", { enabled }),
 };
 
 /** Erreur d'installation : la bibliothèque utilisateur de Live n'est pas à sa place habituelle. */
