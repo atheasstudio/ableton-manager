@@ -16,7 +16,7 @@ use crate::live_window;
 use crate::previews::{self, PreviewInfo};
 use crate::versions::{self, Branch, Diff, NewBranch, RestoreReport, VersionRow};
 use crate::watcher::SaveWatcher;
-use crate::{notes, organize, scanner, AppState, VAULT_DIR};
+use crate::{notes, organize, scanner, worktime, AppState, VAULT_DIR};
 
 /// Erreur renvoyée à l'interface sous forme de texte.
 #[derive(Debug, thiserror::Error)]
@@ -844,4 +844,34 @@ pub fn open_project_id(state: State<AppState>) -> Result<Option<i64>> {
         .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(rows.into_iter().find(|(_, als)| live::is_open(&open, &[PathBuf::from(als)])).map(|(id, _)| id))
+}
+
+// ---------- Temps passé ----------
+
+#[tauri::command]
+pub fn project_time(state: State<AppState>, project_id: i64) -> Result<worktime::ProjectTime> {
+    Ok(worktime::project_time(&state.db.lock().unwrap(), project_id, now())?)
+}
+
+#[tauri::command]
+pub fn delete_work_session(app: AppHandle, state: State<AppState>, id: i64) -> Result<()> {
+    if let Some(project_id) = worktime::delete_session(&state.db.lock().unwrap(), id)? {
+        worktime::notify(&app, project_id);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn worktime_overview(state: State<AppState>) -> Result<worktime::Overview> {
+    Ok(worktime::overview(&state.db.lock().unwrap(), now())?)
+}
+
+#[tauri::command]
+pub fn worktime_enabled(state: State<AppState>) -> Result<bool> {
+    Ok(worktime::enabled(&state.db.lock().unwrap())?)
+}
+
+#[tauri::command]
+pub fn set_worktime_enabled(state: State<AppState>, enabled: bool) -> Result<()> {
+    Ok(worktime::set_enabled(&state.db.lock().unwrap(), enabled)?)
 }

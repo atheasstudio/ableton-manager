@@ -53,6 +53,14 @@ Le device n'enregistre que si l'appli tourne : il parle à l'appli en OSC sur `1
 - Comparaison de deux versions, à l'écoute aussi.
 - Supprimer une version rattache ses enfants à sa parente et libère les fichiers que plus rien n'utilise.
 
+## Suivi du temps
+
+- Toutes les 20 s, l'appli lit le set ouvert dans Live (titre de sa fenêtre) et prolonge la session de travail du projet (table `work_sessions`, branche comprise). Une pause de plus de 3 min ouvre une nouvelle session.
+- Le temps ne compte que si quelqu'un est là : clavier ou souris utilisés dans les 5 dernières minutes, ou Live en train de jouer (Remote Script).
+- L'évènement Tauri `worktime-changed` (`{ project_id }`) est émis quand une session commence, se termine (set fermé, autre set ouvert, absence) ou est supprimée, pas à chaque relevé.
+- Réglages → « Temps passé » : case « Suivre le temps passé » (réglage `worktime_enabled`) et total de la semaine avec les projets les plus travaillés.
+- Les projets qui ont du temps noté ne sont pas retirés de la bibliothèque si leur disque est débranché.
+
 ## Développer
 
 Prérequis : [Rust](https://rustup.rs), Node 22 et les [prérequis Tauri](https://tauri.app/start/prerequisites/) (WebView2 est déjà présent sur Windows 10/11).
