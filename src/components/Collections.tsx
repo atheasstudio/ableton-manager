@@ -7,13 +7,13 @@ import {
   newId,
   sameFilter,
   saveCollections,
+  toast,
 } from "../api-explorer";
 import ContextMenu, { MenuState } from "./ContextMenu";
 
 interface Props {
   filter: ExplorerFilter;
   onFilter: (f: ExplorerFilter) => void;
-  onMessage: (m: string) => void;
 }
 
 /**
@@ -21,26 +21,27 @@ interface Props {
  * filtre enregistré (un second clic le retire), clic droit pour renommer ou
  * supprimer, « + » enregistre le filtre courant.
  */
-export default function Collections({ filter, onFilter, onMessage }: Props) {
+export default function Collections({ filter, onFilter }: Props) {
   const [collections, setCollections] = useState<Collection[]>([]);
   const [menu, setMenu] = useState<MenuState | null>(null);
 
   useEffect(() => {
     listCollections()
       .then(setCollections)
-      .catch((e) => onMessage(`Collections indisponibles : ${e}`));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+      .catch((e) => toast(`Collections indisponibles : ${e}`));
   }, []);
 
   /** Met à jour la liste tout de suite, puis l'enregistre. */
-  async function store(next: Collection[]) {
+  async function store(next: Collection[]): Promise<boolean> {
     const before = collections;
     setCollections(next);
     try {
       await saveCollections(next);
+      return true;
     } catch (e) {
       setCollections(before);
-      onMessage(`Erreur : ${e}`);
+      toast(`Erreur : ${e}`);
+      return false;
     }
   }
 
@@ -74,7 +75,17 @@ export default function Collections({ filter, onFilter, onMessage }: Props) {
         {
           label: "Supprimer",
           danger: true,
-          action: () => store(collections.filter((x) => x.id !== c.id)),
+          action: async () => {
+            const before = collections;
+            if (await store(collections.filter((x) => x.id !== c.id)))
+              toast({
+                message: `Collection « ${c.name} » supprimée`,
+                undo: async () => {
+                  setCollections(before);
+                  await saveCollections(before);
+                },
+              });
+          },
         },
       ],
     });

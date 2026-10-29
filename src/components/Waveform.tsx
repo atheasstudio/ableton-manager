@@ -12,7 +12,8 @@ interface Props {
   duration: number;
   /** Position de lecture, en secondes. */
   position: number;
-  onSeek: (seconds: number) => void;
+  /** Absent : forme d'onde décorative, sans clic ni survol (cartes de l'explorateur). */
+  onSeek?: (seconds: number) => void;
   /** Repères posés sur la forme d'onde (annotations). */
   markers?: Marker[];
   height?: number;
@@ -22,7 +23,7 @@ function cssVar(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
-/** Forme d'onde cliquable : un clic (ou un glissé) déplace la lecture. */
+/** Forme d'onde cliquable : un clic (ou un glissé) déplace la lecture. Sans onSeek, simple image. */
 export default function Waveform({ peaks, duration, position, onSeek, markers = [], height = 56 }: Props) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [width, setWidth] = useState(0);
@@ -78,6 +79,13 @@ export default function Waveform({ peaks, duration, position, onSeek, markers = 
     const fraction = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
     return fraction * duration;
   }
+
+  if (!onSeek)
+    return (
+      <canvas ref={canvas} className="waveform static" style={{ height }}>
+        {markers.map((m) => m.label).join(", ")}
+      </canvas>
+    );
 
   return (
     <canvas
