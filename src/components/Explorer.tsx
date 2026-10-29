@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ask, open } from "@tauri-apps/plugin-dialog";
 import { api, Filter, formatAgo, formatDate, formatDuration, ProjectSummary, STATUS_LABELS, Status } from "../api";
+import { ExplorerFilter, formatSpan } from "../api-explorer";
+import Collections from "./Collections";
 import ContextMenu, { MenuItem, MenuState } from "./ContextMenu";
+import "../explorer.css";
 
 type Sort = "recent" | "worked" | "session" | "name" | "tempo" | "folder" | "status";
 const SORTS: Record<Sort, string> = {
@@ -22,6 +25,17 @@ function loadSort(): Sort {
     if (s && s in SORTS) return s;
   } catch {}
   return "recent";
+}
+
+/** Filtres sans contrôle dédié (collections, docteur…), affichés en pastilles. */
+function extraFilters(f: ExplorerFilter): { key: keyof ExplorerFilter; label: string }[] {
+  const out: { key: keyof ExplorerFilter; label: string }[] = [];
+  if (f.worked_since) out.push({ key: "worked_since", label: `Travaillé ces ${formatSpan(f.worked_since)}` });
+  if (f.not_worked_since)
+    out.push({ key: "not_worked_since", label: `Pas travaillé depuis ${formatSpan(f.not_worked_since)}` });
+  if (f.modified_since) out.push({ key: "modified_since", label: `Modifié ces ${formatSpan(f.modified_since)}` });
+  if (f.plugin) out.push({ key: "plugin", label: `Plugin : ${f.plugin}` });
+  return out;
 }
 
 function parentDir(path: string): string {
@@ -54,7 +68,9 @@ export function baseName(path: string): string {
  * un dossier sont regroupés sous ce dossier. ↑ ↓ passent d'un projet à l'autre.
  */
 export default function Explorer(props: Props) {
-  const { projects, filter, selected } = props;
+  const { projects, selected } = props;
+  const filter: ExplorerFilter = props.filter;
+  const extras = extraFilters(filter);
   const list = useRef<HTMLDivElement>(null);
   const [sort, setSortState] = useState<Sort>(loadSort);
   const [menu, setMenu] = useState<MenuState | null>(null);
@@ -239,6 +255,7 @@ export default function Explorer(props: Props) {
 
   return (
     <div className="explorer-body" onKeyDown={onKeyDown}>
+      <Collections filter={filter} onFilter={props.onFilter} onMessage={props.onMessage} />
       <input
         className="search"
         type="search"
@@ -301,6 +318,22 @@ export default function Explorer(props: Props) {
           ★
         </button>
       </div>
+      {extras.length > 0 && (
+        <div className="extra-filters">
+          {extras.map((x) => (
+            <span key={x.key} className="extra-filter">
+              {x.label}
+              <button
+                className="icon"
+                title="Retirer ce filtre"
+                onClick={() => props.onFilter({ ...filter, [x.key]: undefined })}
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
 
       <div className="elist" ref={list} tabIndex={0}>
         {projects.length === 0 && <p className="empty">Aucun projet trouvé.</p>}
