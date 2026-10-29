@@ -14,6 +14,18 @@ from .handlers import Handlers
 from .server import Server
 
 
+def _logger(c_instance):
+    """Écrit dans Log.txt ; log_message n'existe pas sur le ControlSurface v2."""
+
+    def log(message):
+        try:
+            c_instance.log_message(message)
+        except Exception:
+            pass
+
+    return log
+
+
 def create_instance(c_instance):
     return AbletonManager(c_instance)
 
@@ -22,7 +34,7 @@ class AbletonManager(ControlSurface):
     def __init__(self, c_instance):
         ControlSurface.__init__(self, c_instance)
         handlers = Handlers(lambda: self.song, Live.Application.get_application)
-        self._server = Server(handlers, log=self.log_message)
+        self._server = Server(handlers, log=_logger(c_instance))
         self._server.poll()
         self.show_message("Ableton Manager connecté")
 
