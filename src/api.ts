@@ -56,6 +56,21 @@ export interface Filter {
   tag?: string;
   favorites_only?: boolean;
   show_hidden?: boolean;
+  /** Travaillé dans cette durée (secondes depuis maintenant ; 604800 = 7 jours). */
+  worked_since?: number;
+  /** Pas travaillé dans cette durée (jamais travaillé compris). */
+  not_worked_since?: number;
+  /** .als modifié dans cette durée (secondes). */
+  modified_since?: number;
+  /** Utilise ce plugin (nom exact). */
+  plugin?: string;
+}
+
+/** Filtre enregistré sous un nom (stocké dans les réglages). */
+export interface Collection {
+  id: string;
+  name: string;
+  filter: Filter;
 }
 
 export interface ScanReport {
@@ -342,6 +357,9 @@ export const api = {
   worktimeOverview: () => invoke<WorktimeOverview>("worktime_overview"),
   worktimeEnabled: () => invoke<boolean>("worktime_enabled"),
   setWorktimeEnabled: (enabled: boolean) => invoke<void>("set_worktime_enabled", { enabled }),
+
+  listCollections: () => invoke<Collection[]>("list_collections"),
+  saveCollections: (collections: Collection[]) => invoke<void>("save_collections", { collections }),
 };
 
 /** Erreur d'installation : la bibliothèque utilisateur de Live n'est pas à sa place habituelle. */

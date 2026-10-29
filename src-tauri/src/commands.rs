@@ -846,6 +846,18 @@ pub fn open_project_id(state: State<AppState>) -> Result<Option<i64>> {
     Ok(rows.into_iter().find(|(_, als)| live::is_open(&open, &[PathBuf::from(als)])).map(|(id, _)| id))
 }
 
+// ---------- Collections ----------
+
+#[tauri::command]
+pub fn list_collections(state: State<AppState>) -> Result<Vec<db::Collection>> {
+    Ok(db::list_collections(&state.db.lock().unwrap())?)
+}
+
+#[tauri::command]
+pub fn save_collections(state: State<AppState>, collections: Vec<db::Collection>) -> Result<()> {
+    Ok(db::save_collections(&state.db.lock().unwrap(), &collections)?)
+}
+
 // ---------- Temps passé ----------
 
 #[tauri::command]
