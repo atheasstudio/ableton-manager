@@ -1,7 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { ask } from "@tauri-apps/plugin-dialog";
-import { api, formatDateTime, formatSize, TreeNote, VersionsView, versionLabel } from "../api";
+import {
+  api,
+  Branch,
+  formatDateTime,
+  formatSize,
+  TreeNote,
+  Version,
+  VersionsView,
+  versionLabel,
+} from "../api";
+import ContextMenu, { MenuState } from "./ContextMenu";
 import CompareDialog from "./CompareDialog";
 import PreviewPlayer from "./PreviewPlayer";
 import VersionGraph, { laneColor } from "./VersionGraph";
@@ -25,6 +35,8 @@ export default function VersionsTab({ projectId, timeSig, onVaultChange }: Props
   const [message, setMessage] = useState<string | null>(null);
   const [rename, setRename] = useState("");
   const [branchName, setBranchName] = useState<string | null>(null);
+  const [menu, setMenu] = useState<MenuState | null>(null);
+  const autoEnabled = useRef<number | null>(null);
 
   async function load() {
     setView(await api.getVersions(projectId));
@@ -67,6 +79,16 @@ export default function VersionsTab({ projectId, timeSig, onVaultChange }: Props
       setBusy(null);
     }
   }
+
+  // Les versions s'activent toutes seules à l'ouverture du projet.
+  useEffect(() => {
+    if (!view || view.branches.length > 0 || autoEnabled.current === projectId) return;
+    autoEnabled.current = projectId;
+    run("Activation des versions…", async () => {
+      const n = await api.enableVersions(projectId, true);
+      return `Versions activées : ${n} version${n > 1 ? "s" : ""} reprise${n > 1 ? "s" : ""}`;
+    });
+  }, [view, projectId]);
 
   if (!view) return null;
 
@@ -111,7 +133,8 @@ export default function VersionsTab({ projectId, timeSig, onVaultChange }: Props
     .filter(Boolean)
     .sort((x, y) => x.created_at - y.created_at || x.id - y.id);
 
-  async function restore() {
+  async function restore(target: Version | null = version) {
+    const version = target;
     if (!version) return;
     const b = branchOf(version.branch_id)!;
     const ok = await ask(
@@ -146,7 +169,68 @@ export default function VersionsTab({ projectId, timeSig, onVaultChange }: Props
     });
   }
 
-  async function remove() {
+  async function deleteBranch(b: Branch) {
+    const ok = await ask(
+      `Supprimer la branche « ${b.name} » et ses versions ? Son dossier part à la corbeille :\n${b.folder}`,
+      { title: "Supprimer la branche", kind: "warning", okLabel: "Supprimer", cancelLabel: "Annuler" },
+    );
+    if (!ok) return;
+    run("Suppression de la branche…", async () => {
+      const freed = await api.deleteBranch(b.id);
+      setSelected(null);
+      setChecked([]);
+      return `Branche supprimée, ${formatSize(freed)} libérés`;
+    });
+  }
+
+  function branchFrom(v: Version) {
+    const name = window.prompt(`Nom de la nouvelle branche (depuis « ${versionLabel(v)} ») :`);
+    if (!name?.trim()) return;
+    run("Création de la branche…", async () => {
+      const r = await api.createBranch(v.id, name);
+      return `Branche « ${r.branch.name} » créée dans ${r.branch.folder}`;
+    });
+  }
+
+  function branchMenu(b: Branch, e: React.MouseEvent) {
+    setMenu({
+      x: e.clientX,
+      y: e.clientY,
+      items: [
+        { label: "▶ Ouvrir dans Live", action: () => api.openBranch(b.id) },
+        { label: "Ouvrir le dossier", action: () => api.openBranchFolder(b.id) },
+        {
+          label: "Créer une version maintenant",
+          action: () =>
+            run("Sauvegarde…", async () =>
+              (await api.snapshotNow(b.id)) ? "Version créée" : "Rien n'a changé depuis la dernière version",
+            ),
+        },
+        { label: "Supprimer la branche", danger: true, disabled: b.is_main, action: () => deleteBranch(b) },
+      ],
+    });
+  }
+
+  function versionMenu(v: Version, e: React.MouseEvent) {
+    const b = branchOf(v.branch_id);
+    setMenu({
+      x: e.clientX,
+      y: e.clientY,
+      items: [
+        { label: "Nouvelle branche depuis ici…", action: () => branchFrom(v) },
+        { label: "Restaurer cette version", action: () => restore(v) },
+        { label: "Cocher pour comparer", action: () => toggleCheck(v.id) },
+        ...(b ? [{ label: `Ouvrir « ${b.name} » dans Live`, action: () => api.openBranch(b.id) }] : []),
+        { label: "Supprimer la version", danger: true, action: () => remove(v) },
+        ...(b && !b.is_main
+          ? [{ label: `Supprimer la branche « ${b.name} »`, danger: true, action: () => deleteBranch(b) }]
+          : []),
+      ],
+    });
+  }
+
+  async function remove(target: Version | null = version) {
+    const version = target;
     if (!version) return;
     const ok = await ask(
       `Supprimer « ${versionLabel(version)} » ? Les audios que plus aucune version n'utilise quittent le coffre.`,
@@ -168,6 +252,7 @@ export default function VersionsTab({ projectId, timeSig, onVaultChange }: Props
 
   return (
     <div className="versions">
+      {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
       <ul className="branches">
         {view.branches.map((b) => (
           <li key={b.id} title={b.als_path}>
@@ -198,6 +283,16 @@ export default function VersionsTab({ projectId, timeSig, onVaultChange }: Props
             >
               + Version
             </button>
+            {!b.is_main && (
+              <button
+                className="danger"
+                disabled={!!busy}
+                title="Supprimer cette branche"
+                onClick={() => deleteBranch(b)}
+              >
+                ✕
+              </button>
+            )}
           </li>
         ))}
       </ul>
@@ -211,6 +306,8 @@ export default function VersionsTab({ projectId, timeSig, onVaultChange }: Props
         checked={checked}
         onToggleCheck={toggleCheck}
         onOpenBranch={(id) => api.openBranch(id)}
+        onVersionMenu={versionMenu}
+        onBranchMenu={branchMenu}
         onAddNote={async (versionId, x, y) => {
           const note = await api.addTreeNote(projectId, versionId, x, y);
           setNotes((all) => [...all, note]);
@@ -280,7 +377,7 @@ export default function VersionsTab({ projectId, timeSig, onVaultChange }: Props
                       Ouvrir dans Live
                     </button>
                   )}
-                  <button disabled={!!busy} onClick={restore}>
+                  <button disabled={!!busy} onClick={() => restore()}>
                     Restaurer
                   </button>
                   <button
@@ -299,7 +396,7 @@ export default function VersionsTab({ projectId, timeSig, onVaultChange }: Props
                       Comparer à la précédente
                     </button>
                   )}
-                  <button className="danger" disabled={!!busy} onClick={remove}>
+                  <button className="danger" disabled={!!busy} onClick={() => remove()}>
                     Supprimer
                   </button>
                 </div>

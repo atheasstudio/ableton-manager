@@ -10,7 +10,8 @@ pub type Result<T> = rusqlite::Result<T>;
 
 /// Migrations appliquées dans l'ordre ; l'index courant est stocké dans
 /// `PRAGMA user_version`. Ne jamais modifier une migration déjà publiée.
-const MIGRATIONS: &[&str] = &[r#"
+const MIGRATIONS: &[&str] = &[
+    r#"
 CREATE TABLE roots (
     id   INTEGER PRIMARY KEY,
     path TEXT NOT NULL UNIQUE
@@ -68,7 +69,8 @@ CREATE VIRTUAL TABLE search USING fts5(
     name, note, plugins, samples, tags,
     tokenize = 'unicode61 remove_diacritics 2'
 );
-"#, r#"
+"#,
+    r#"
 CREATE TABLE settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -134,7 +136,8 @@ CREATE TABLE version_files (
 
 CREATE INDEX versions_project ON versions(project_id);
 CREATE INDEX version_files_version ON version_files(version_id);
-"#, r#"
+"#,
+    r#"
 -- Points posés sur la timeline ; position en beats depuis la mesure 1.
 CREATE TABLE annotations (
     id         INTEGER PRIMARY KEY,
@@ -145,7 +148,8 @@ CREATE TABLE annotations (
 );
 
 CREATE INDEX annotations_project ON annotations(project_id, beat);
-"#, r#"
+"#,
+    r#"
 -- Dernier aperçu audio du projet (fichier du coffre).
 ALTER TABLE projects ADD COLUMN preview_hash TEXT;
 
@@ -185,7 +189,8 @@ CREATE TABLE captures (
 );
 
 CREATE INDEX captures_set ON captures(als_path);
-"#, r#"
+"#,
+    r#"
 -- Notes posées dans l'espace de l'arbre des versions. Accrochée à une
 -- version, (x, y) est un décalage par rapport à elle ; sinon une position.
 CREATE TABLE tree_notes (
@@ -199,7 +204,12 @@ CREATE TABLE tree_notes (
 );
 
 CREATE INDEX tree_notes_project ON tree_notes(project_id);
-"#];
+"#,
+    r#"
+-- Dossiers ou .als masqués dans l'explorateur (preset packs…).
+CREATE TABLE hidden (path TEXT PRIMARY KEY);
+"#,
+];
 
 pub fn open(path: &Path) -> Result<Connection> {
     let conn = Connection::open(path)?;
@@ -246,7 +256,12 @@ pub fn remove_root(conn: &Connection, id: i64) -> Result<()> {
 
 pub fn list_roots(conn: &Connection) -> Result<Vec<Root>> {
     let mut stmt = conn.prepare("SELECT id, path FROM roots ORDER BY path")?;
-    let rows = stmt.query_map([], |r| Ok(Root { id: r.get(0)?, path: r.get(1)? }))?;
+    let rows = stmt.query_map([], |r| {
+        Ok(Root {
+            id: r.get(0)?,
+            path: r.get(1)?,
+        })
+    })?;
     rows.collect()
 }
 
@@ -276,7 +291,13 @@ pub fn indexed_mtime(conn: &Connection, als_path: &str) -> Result<Option<i64>> {
 
 /// Projet inchangé depuis le dernier scan : on le marque comme revu et on
 /// remet à jour son nom et les autres sets du dossier, qui ont pu changer.
-pub fn mark_seen(conn: &mut Connection, als_path: &str, name: &str, other_sets: &[String], now: i64) -> Result<()> {
+pub fn mark_seen(
+    conn: &mut Connection,
+    als_path: &str,
+    name: &str,
+    other_sets: &[String],
+    now: i64,
+) -> Result<()> {
     let tx = conn.transaction()?;
     let id: Option<i64> = tx
         .query_row(
@@ -286,7 +307,10 @@ pub fn mark_seen(conn: &mut Connection, als_path: &str, name: &str, other_sets: 
         )
         .optional()?;
     if let Some(id) = id {
-        tx.execute("DELETE FROM project_items WHERE project_id = ?1 AND kind = 'set'", [id])?;
+        tx.execute(
+            "DELETE FROM project_items WHERE project_id = ?1 AND kind = 'set'",
+            [id],
+        )?;
         insert_sets(&tx, id, other_sets)?;
         refresh_search(&tx, id)?;
     }
@@ -351,7 +375,13 @@ pub fn upsert_project(conn: &mut Connection, p: &ScannedProject, now: i64) -> Re
         }
         for sample in &p.set.samples {
             let name = sample.file_name().unwrap_or("?");
-            item.execute(params![id, "sample", name, sample.path, sample.relative_path])?;
+            item.execute(params![
+                id,
+                "sample",
+                name,
+                sample.path,
+                sample.relative_path
+            ])?;
         }
     }
     insert_sets(&tx, id, p.other_sets)?;
@@ -371,7 +401,10 @@ pub fn remove_missing(conn: &Connection, root_id: i64, scanned_before: i64) -> R
         &format!("DELETE FROM search WHERE rowid IN ({MISSING})"),
         params![root_id, scanned_before],
     )?;
-    conn.execute(&format!("DELETE FROM projects WHERE id IN ({MISSING})"), params![root_id, scanned_before])
+    conn.execute(
+        &format!("DELETE FROM projects WHERE id IN ({MISSING})"),
+        params![root_id, scanned_before],
+    )
 }
 
 /// Vrai si `folder` est le dossier de travail d'une branche (et pas le
@@ -385,7 +418,10 @@ pub fn is_branch_folder(conn: &Connection, folder: &str) -> Result<bool> {
 }
 
 pub fn get_setting(conn: &Connection, key: &str) -> Result<Option<String>> {
-    conn.query_row("SELECT value FROM settings WHERE key = ?1", [key], |r| r.get(0)).optional()
+    conn.query_row("SELECT value FROM settings WHERE key = ?1", [key], |r| {
+        r.get(0)
+    })
+    .optional()
 }
 
 pub fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<()> {
@@ -427,6 +463,9 @@ pub struct ProjectSummary {
     pub tags: Vec<String>,
     /// Aperçu audio (fichier du coffre).
     pub preview_hash: Option<String>,
+    pub hidden: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub als_path: Option<String>,
 }
 
 #[derive(Debug, Default, serde::Deserialize)]
@@ -437,38 +476,51 @@ pub struct Filter {
     pub tag: Option<String>,
     #[serde(default)]
     pub favorites_only: bool,
+    /// Inclure les projets masqués.
+    #[serde(default)]
+    pub show_hidden: bool,
 }
+
+/// Vrai si `p` (alias de projects) est masqué, lui ou un dossier parent.
+const HIDDEN_SQL: &str = "EXISTS (SELECT 1 FROM hidden h WHERE h.path IN (p.als_path, p.folder)
+    OR substr(p.folder, 1, length(h.path) + 1) IN (h.path || '\\', h.path || '/'))";
 
 pub fn search_projects(conn: &Connection, f: &Filter) -> Result<Vec<ProjectSummary>> {
     let fts = f.query.as_deref().and_then(fts_query);
-    let mut stmt = conn.prepare(
+    let mut stmt = conn.prepare(&format!(
         "SELECT p.id, p.name, p.folder, p.tempo, p.live_version, p.modified_at, p.status, p.favorite,
              (SELECT group_concat(t.name, char(31)) FROM project_tags pt JOIN tags t ON t.id = pt.tag_id
                  WHERE pt.project_id = p.id),
-             p.preview_hash
+             p.preview_hash, {HIDDEN_SQL}, p.als_path
          FROM projects p
-         WHERE (?1 IS NULL OR p.id IN (SELECT rowid FROM search WHERE search MATCH ?1))
+         WHERE (?5 = 1 OR NOT {HIDDEN_SQL})
+           AND (?1 IS NULL OR p.id IN (SELECT rowid FROM search WHERE search MATCH ?1))
            AND (?2 IS NULL OR p.status = ?2)
            AND (?3 IS NULL OR p.id IN (SELECT pt.project_id FROM project_tags pt
                                        JOIN tags t ON t.id = pt.tag_id WHERE t.name = ?3))
            AND (?4 = 0 OR p.favorite = 1)
-         ORDER BY p.modified_at DESC",
+         ORDER BY p.modified_at DESC"
+    ))?;
+    let rows = stmt.query_map(
+        params![fts, f.status, f.tag, f.favorites_only, f.show_hidden],
+        |r| {
+            let tags: Option<String> = r.get(8)?;
+            Ok(ProjectSummary {
+                id: r.get(0)?,
+                name: r.get(1)?,
+                folder: r.get(2)?,
+                tempo: r.get(3)?,
+                live_version: r.get(4)?,
+                modified_at: r.get(5)?,
+                status: r.get(6)?,
+                favorite: r.get(7)?,
+                tags: split_tags(tags),
+                preview_hash: r.get(9)?,
+                hidden: r.get(10)?,
+                als_path: r.get(11)?,
+            })
+        },
     )?;
-    let rows = stmt.query_map(params![fts, f.status, f.tag, f.favorites_only], |r| {
-        let tags: Option<String> = r.get(8)?;
-        Ok(ProjectSummary {
-            id: r.get(0)?,
-            name: r.get(1)?,
-            folder: r.get(2)?,
-            tempo: r.get(3)?,
-            live_version: r.get(4)?,
-            modified_at: r.get(5)?,
-            status: r.get(6)?,
-            favorite: r.get(7)?,
-            tags: split_tags(tags),
-            preview_hash: r.get(9)?,
-        })
-    })?;
     rows.collect()
 }
 
@@ -537,6 +589,8 @@ pub fn get_project(conn: &Connection, id: i64) -> Result<Option<ProjectDetail>> 
                         favorite: r.get(7)?,
                         tags: split_tags(r.get(11)?),
                         preview_hash: r.get(12)?,
+                        hidden: false,
+                        als_path: None,
                     },
                     r.get::<_, String>(8)?,
                     r.get::<_, Option<String>>(9)?,
@@ -545,12 +599,19 @@ pub fn get_project(conn: &Connection, id: i64) -> Result<Option<ProjectDetail>> 
             },
         )
         .optional()?;
-    let Some((summary, als_path, time_sig, note)) = row else { return Ok(None) };
+    let Some((summary, als_path, time_sig, note)) = row else {
+        return Ok(None);
+    };
 
     let mut stmt =
         conn.prepare("SELECT name, kind FROM tracks WHERE project_id = ?1 ORDER BY position")?;
     let tracks = stmt
-        .query_map([id], |r| Ok(TrackRow { name: r.get(0)?, kind: r.get(1)? }))?
+        .query_map([id], |r| {
+            Ok(TrackRow {
+                name: r.get(0)?,
+                kind: r.get(1)?,
+            })
+        })?
         .collect::<Result<_>>()?;
 
     let items = |kind: &str| -> Result<Vec<ItemRow>> {
@@ -567,7 +628,11 @@ pub fn get_project(conn: &Connection, id: i64) -> Result<Option<ProjectDetail>> 
             let found = path.as_deref().is_some_and(|p| Path::new(p).exists())
                 || rel_path.as_deref().is_some_and(|p| folder.join(p).exists());
             let missing = kind == "sample" && !found;
-            Ok(ItemRow { name: r.get(0)?, path: path.or(rel_path), missing })
+            Ok(ItemRow {
+                name: r.get(0)?,
+                path: path.or(rel_path),
+                missing,
+            })
         })?;
         rows.collect()
     };
@@ -606,17 +671,26 @@ pub fn all_tags(conn: &Connection) -> Result<Vec<String>> {
 pub const STATUSES: &[&str] = &["idee", "en_cours", "fini", "abandonne"];
 
 pub fn set_status(conn: &Connection, id: i64, status: &str) -> Result<()> {
-    conn.execute("UPDATE projects SET status = ?2 WHERE id = ?1", params![id, status])?;
+    conn.execute(
+        "UPDATE projects SET status = ?2 WHERE id = ?1",
+        params![id, status],
+    )?;
     Ok(())
 }
 
 pub fn set_favorite(conn: &Connection, id: i64, favorite: bool) -> Result<()> {
-    conn.execute("UPDATE projects SET favorite = ?2 WHERE id = ?1", params![id, favorite])?;
+    conn.execute(
+        "UPDATE projects SET favorite = ?2 WHERE id = ?1",
+        params![id, favorite],
+    )?;
     Ok(())
 }
 
 pub fn set_note(conn: &Connection, id: i64, note: &str) -> Result<()> {
-    conn.execute("UPDATE projects SET note = ?2 WHERE id = ?1", params![id, note])?;
+    conn.execute(
+        "UPDATE projects SET note = ?2 WHERE id = ?1",
+        params![id, note],
+    )?;
     refresh_search(conn, id)
 }
 
@@ -653,8 +727,14 @@ mod tests {
             creator: "Ableton Live 12.2.5".into(),
             tempo: Some(117.0),
             time_signature: Some((4, 4)),
-            tracks: vec![Track { name: "Kontakt 8".into(), kind: TrackKind::Midi }],
-            plugins: vec![Plugin { name: "Serum 2".into(), format: PluginFormat::Vst3 }],
+            tracks: vec![Track {
+                name: "Kontakt 8".into(),
+                kind: TrackKind::Midi,
+            }],
+            plugins: vec![Plugin {
+                name: "Serum 2".into(),
+                format: PluginFormat::Vst3,
+            }],
             samples: vec![Sample {
                 path: Some("F:/musique/Pack/Aubit - Awake Clap 6.wav".into()),
                 ..Default::default()
@@ -686,15 +766,26 @@ mod tests {
         add_tag(&conn, id, "cinématique").unwrap();
 
         let find = |q: &str| -> Vec<String> {
-            let f = Filter { query: Some(q.into()), ..Default::default() };
-            search_projects(&conn, &f).unwrap().into_iter().map(|p| p.name).collect()
+            let f = Filter {
+                query: Some(q.into()),
+                ..Default::default()
+            };
+            search_projects(&conn, &f)
+                .unwrap()
+                .into_iter()
+                .map(|p| p.name)
+                .collect()
         };
         assert_eq!(find("wood"), ["Woodkid perc"]);
         assert_eq!(find("serum").len(), 2);
         assert_eq!(find("awake clap").len(), 2);
         assert_eq!(find("cinematique"), ["Woodkid perc"], "accents ignorés");
         assert!(find("introuvable").is_empty());
-        assert_eq!(find("\"wood"), ["Woodkid perc"], "un guillemet ne casse pas la recherche");
+        assert_eq!(
+            find("\"wood"),
+            ["Woodkid perc"],
+            "un guillemet ne casse pas la recherche"
+        );
     }
 
     #[test]
@@ -720,14 +811,22 @@ mod tests {
     /// `ALS_FIXTURES` pointe vers un dossier.
     #[test]
     fn real_library() {
-        let Ok(dir) = std::env::var("ALS_FIXTURES") else { return };
+        let Ok(dir) = std::env::var("ALS_FIXTURES") else {
+            return;
+        };
         let mut conn = open_in_memory().unwrap();
         for p in crate::scanner::find_projects(Path::new(&dir)) {
             let set = als_parser::parse_file(&p.main_set).unwrap();
-            let others: Vec<String> =
-                p.other_sets.iter().map(|o| o.to_string_lossy().into_owned()).collect();
-            let (name, folder, als) =
-                (p.name(), p.folder.to_string_lossy(), p.main_set.to_string_lossy());
+            let others: Vec<String> = p
+                .other_sets
+                .iter()
+                .map(|o| o.to_string_lossy().into_owned())
+                .collect();
+            let (name, folder, als) = (
+                p.name(),
+                p.folder.to_string_lossy(),
+                p.main_set.to_string_lossy(),
+            );
             let scanned = ScannedProject {
                 root_id: None,
                 folder: &folder,
@@ -752,8 +851,14 @@ mod tests {
                 d.other_sets.len()
             );
         }
-        let f = Filter { query: Some("kontakt".into()), ..Default::default() };
-        println!("recherche « kontakt » : {} projets", search_projects(&conn, &f).unwrap().len());
+        let f = Filter {
+            query: Some("kontakt".into()),
+            ..Default::default()
+        };
+        println!(
+            "recherche « kontakt » : {} projets",
+            search_projects(&conn, &f).unwrap().len()
+        );
     }
 
     #[test]

@@ -77,7 +77,7 @@ export default function App() {
 
   // Rien de choisi (premier lancement) ou projet disparu : le plus récent.
   useEffect(() => {
-    const unfiltered = !filter.query && !filter.status && !filter.tag && !filter.favorites_only;
+    const unfiltered = !filter.query && !filter.status && !filter.tag && !filter.favorites_only && !filter.show_hidden;
     const gone = unfiltered && !projects.some((p) => p.id === selected);
     if (projects.length > 0 && (selected === null || gone)) setSelected(projects[0].id);
   }, [projects]);
@@ -122,6 +122,17 @@ export default function App() {
             {scanning ? "Scan…" : "Scanner"}
           </button>
           <button
+            onClick={() =>
+              api.liveAddCapture().then(
+                () => setMessage("Device de capture ajouté au Master du set ouvert"),
+                (e) => setMessage(`Capture : ${e}`),
+              )
+            }
+            title="Ajouter « Ableton Manager Capture » au set ouvert dans Live"
+          >
+            + Capture
+          </button>
+          <button
             className="icon settings-btn"
             onClick={() => setSettings(true)}
             title="Réglages : dossiers, coffre, pré-écoute"
@@ -147,6 +158,8 @@ export default function App() {
           onSelect={setSelected}
           playing={playing?.id ?? null}
           onPlay={(p) => setPlaying(playing?.id === p.id ? null : p)}
+          onChanged={refresh}
+          onMessage={setMessage}
         />
 
         {playing?.preview_hash && (

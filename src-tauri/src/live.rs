@@ -11,14 +11,26 @@ use crate::live_window::OpenSet;
 /// Port d'écoute du Remote Script (voir `server.py`).
 pub const PORT: u16 = 11040;
 /// Version des messages attendue (voir `handlers.py`).
-pub const SCRIPT_VERSION: i32 = 1;
+pub const SCRIPT_VERSION: i32 = 2;
 
 /// Fichiers du Remote Script, installés par l'appli dans la User Library.
 pub const SCRIPT_FILES: &[(&str, &str)] = &[
-    ("__init__.py", include_str!("../../remote-script/AbletonManager/__init__.py")),
-    ("handlers.py", include_str!("../../remote-script/AbletonManager/handlers.py")),
-    ("osc.py", include_str!("../../remote-script/AbletonManager/osc.py")),
-    ("server.py", include_str!("../../remote-script/AbletonManager/server.py")),
+    (
+        "__init__.py",
+        include_str!("../../remote-script/AbletonManager/__init__.py"),
+    ),
+    (
+        "handlers.py",
+        include_str!("../../remote-script/AbletonManager/handlers.py"),
+    ),
+    (
+        "osc.py",
+        include_str!("../../remote-script/AbletonManager/osc.py"),
+    ),
+    (
+        "server.py",
+        include_str!("../../remote-script/AbletonManager/server.py"),
+    ),
 ];
 
 #[derive(Debug, thiserror::Error)]
@@ -45,8 +57,14 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub fn is_open(open: &OpenSet, candidates: &[PathBuf]) -> bool {
     let same = |a: &str, b: &str| a.to_lowercase() == b.to_lowercase();
     candidates.iter().any(|als| {
-        let stem = als.file_stem().map(|s| s.to_string_lossy()).unwrap_or_default();
-        let folder = als.parent().and_then(|p| p.file_name()).map(|s| s.to_string_lossy());
+        let stem = als
+            .file_stem()
+            .map(|s| s.to_string_lossy())
+            .unwrap_or_default();
+        let folder = als
+            .parent()
+            .and_then(|p| p.file_name())
+            .map(|s| s.to_string_lossy());
         same(&open.set, &stem)
             && match (&open.project, folder) {
                 (Some(project), Some(folder)) => same(project, &folder),
@@ -195,7 +213,10 @@ impl Live {
     }
 
     pub fn with_port(port: u16) -> Self {
-        Self { target: SocketAddr::from(([127, 0, 0, 1], port)), socket: Mutex::new(None) }
+        Self {
+            target: SocketAddr::from(([127, 0, 0, 1], port)),
+            socket: Mutex::new(None),
+        }
     }
 
     /// Envoie un message et attend la réponse portant la même adresse.
@@ -299,8 +320,14 @@ mod tests {
             project: project.map(Into::into),
             modified: false,
         };
-        assert!(is_open(&open("Sans titre", Some("Sans titre Project")), std::slice::from_ref(&main)));
-        assert!(is_open(&open("sans titre", None), std::slice::from_ref(&main)), "casse ignorée");
+        assert!(is_open(
+            &open("Sans titre", Some("Sans titre Project")),
+            std::slice::from_ref(&main)
+        ));
+        assert!(
+            is_open(&open("sans titre", None), std::slice::from_ref(&main)),
+            "casse ignorée"
+        );
         assert!(
             is_open(
                 &open("Sans titre", Some("Sans titre - club Project")),
@@ -308,8 +335,14 @@ mod tests {
             ),
             "une branche du projet compte"
         );
-        assert!(!is_open(&open("Sans titre", Some("Autre Project")), std::slice::from_ref(&main)));
-        assert!(!is_open(&open("Autre", Some("Sans titre Project")), &[main]));
+        assert!(!is_open(
+            &open("Sans titre", Some("Autre Project")),
+            std::slice::from_ref(&main)
+        ));
+        assert!(!is_open(
+            &open("Autre", Some("Sans titre Project")),
+            &[main]
+        ));
     }
 
     #[test]
@@ -361,16 +394,20 @@ mod tests {
     #[test]
     fn client_requests() {
         let live = fake_script(|addr, args| match addr {
-            "/manager/status" => {
-                Some((addr.into(), vec![Arg::Bool(true), Arg::Float(64.0), Arg::Float(120.0)]))
-            }
+            "/manager/status" => Some((
+                addr.into(),
+                vec![Arg::Bool(true), Arg::Float(64.0), Arg::Float(120.0)],
+            )),
             "/manager/jump" => {
                 assert_eq!(args, [Arg::Float(160.0), Arg::Bool(false)]);
                 // Une réponse parasite d'abord : elle doit être ignorée.
                 Some((addr.into(), vec![args[0].clone()]))
             }
             "/manager/version" => Some((addr.into(), vec![Arg::Int(SCRIPT_VERSION)])),
-            _ => Some(("/live/error".into(), vec![Arg::Str(format!("adresse inconnue : {addr}"))])),
+            _ => Some((
+                "/live/error".into(),
+                vec![Arg::Str(format!("adresse inconnue : {addr}"))],
+            )),
         });
         let t = live.transport().unwrap();
         assert!(t.playing);
@@ -386,7 +423,11 @@ mod tests {
     #[test]
     fn no_script() {
         // Port lié puis libéré : personne n'y écoute.
-        let port = UdpSocket::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+        let port = UdpSocket::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
         let live = Live::with_port(port);
         assert!(matches!(live.transport(), Err(Error::NoAnswer)));
         assert_eq!(live.script_version(), None);

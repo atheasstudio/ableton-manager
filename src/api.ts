@@ -26,6 +26,8 @@ export interface ProjectSummary {
   tags: string[];
   /** Aperçu audio (fichier du coffre). */
   preview_hash: string | null;
+  hidden: boolean;
+  als_path?: string;
 }
 
 export interface Item {
@@ -49,6 +51,7 @@ export interface Filter {
   status?: Status;
   tag?: string;
   favorites_only?: boolean;
+  show_hidden?: boolean;
 }
 
 export interface ScanReport {
@@ -236,6 +239,14 @@ export const api = {
   removeTag: (id: number, tag: string) => invoke<void>("remove_tag", { id, tag }),
   openInAbleton: (id: number) => invoke<void>("open_in_ableton", { id }),
   openFolder: (id: number) => invoke<void>("open_folder", { id }),
+
+  setHidden: (path: string, hidden: boolean) => invoke<void>("set_hidden", { path, hidden }),
+  renamePath: (path: string, name: string) => invoke<string>("rename_path", { path, name }),
+  movePath: (path: string, destDir: string) => invoke<string>("move_path", { path, destDir }),
+  deletePath: (path: string) => invoke<number>("delete_path", { path }),
+  createDir: (parent: string, name: string) => invoke<string>("create_dir", { parent, name }),
+  deleteBranch: (branchId: number) => invoke<number>("delete_branch", { branchId }),
+  liveAddCapture: () => invoke<void>("live_add_capture"),
 
   getVersions: (projectId: number) => invoke<VersionsView>("get_versions", { projectId }),
   enableVersions: (projectId: number, importBackups: boolean) =>
