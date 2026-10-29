@@ -1,0 +1,32 @@
+/* Feuille du lot interface : onglet Temps, notifications, palette, raccourcis, dépôt de fichiers. */
+
+/* ---------- En-tête : temps passé ---------- */
+button.link.ws-worktime { color: var(--muted); font-size: inherit; white-space: nowrap; }
+button.link.ws-worktime:hover { color: var(--accent); }
+
+/* ---------- Onglet Temps ---------- */
+.worktime { display: flex; flex-wrap: wrap; gap: 16px 28px; align-items: flex-start; }
+.worktime.empty p { color: var(--muted); margin: 0; }
+.wt-stats { display: grid; grid-template-columns: repeat(2, minmax(110px, auto)); gap: 10px 20px; }
+.wt-stats div { display: flex; flex-direction: column; }
+.wt-stats strong { font-size: 18px; font-variant-numeric: tabular-nums; }
+.wt-stats small { color: var(--muted); font-size: 12px; }
+
+.wt-grid { display: flex; gap: 3px; }
+.wt-grid-days, .wt-grid-week { display: flex; flex-direction: column; gap: 3px; }
+.wt-grid-days span { height: 12px; font-size: 9px; line-height: 12px; color: var(--muted); padding-right: 4px; }
+.wt-cell { width: 12px; height: 12px; border-radius: 2px; background: var(--surface-2); }
+.wt-cell.l1 { background: color-mix(in srgb, var(--accent) 30%, var(--surface-2)); }
+.wt-cell.l2 { background: color-mix(in srgb, var(--accent) 55%, var(--surface-2)); }
+.wt-cell.l3 { background: color-mix(in srgb, var(--accent) 80%, var(--surface-2)); }
+.wt-cell.l4 { background: var(--accent); }
+.wt-cell.future { background: transparent; }
+
+.wt-sessions { flex: 1; min-width: 220px; }
+.wt-sessions h4 { margin: 0 0 6px; font-size: 12px; color: var(--muted); font-weight: 500; }
+.wt-sessions ul { list-style: none; margin: 0; padding: 0; max-height: 190px; overflow-y: auto; }
+.wt-sessions li { display: flex; align-items: center; gap: 10px; padding: 3px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.wt-sessions li .num { min-width: 64px; font-variant-numeric: tabular-nums; }
+.wt-sessions li button { margin-left: auto; visibility: hidden; }
+.wt-sessions li:hover button { visibility: visible; }
+.wt-branch { font-size: 11px; padding: 0 6px; border-radius: 8px; background: var(--surface-2); color: var(--muted); }

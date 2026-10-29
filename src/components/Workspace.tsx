@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { ask } from "@tauri-apps/plugin-dialog";
-import { api, formatDate, ProjectDetail, STATUS_LABELS, Status } from "../api";
+import { api, formatAgo, formatDate, formatDuration, ProjectDetail, STATUS_LABELS, Status } from "../api";
 import { baseName } from "./Explorer";
 import PreviewSection from "./PreviewSection";
 import TimelineTab from "./TimelineTab";
 import VersionsTab from "./VersionsTab";
+import WorktimeTab, { worktimeProject } from "./WorktimeTab";
 
 interface Props {
   id: number;
@@ -14,7 +16,7 @@ interface Props {
   onVaultChange: () => void;
 }
 
-type DockTab = "timeline" | "preview" | "infos";
+type DockTab = "timeline" | "preview" | "time" | "infos";
 
 const KIND_LABELS = { audio: "Audio", midi: "MIDI", group: "Groupe", return: "Retour" };
 const DOCK_KEY = "workspace.dock";
@@ -57,6 +59,13 @@ export default function Workspace({ id, onChange, onVaultChange }: Props) {
   useEffect(() => {
     setMessage(null);
     load();
+    // Une session qui se termine change le temps affiché dans l'en-tête.
+    const unlisten = listen("worktime-changed", (e) => {
+      if (worktimeProject(e.payload) === id) load();
+    });
+    return () => {
+      unlisten.then((f) => f());
+    };
   }, [id]);
 
   if (project === null) {
@@ -129,6 +138,20 @@ export default function Workspace({ id, onChange, onVaultChange }: Props) {
             ]
               .filter(Boolean)
               .join(" · ")}
+            {project.time_spent > 0 && (
+              <>
+                {" · "}
+                <button
+                  className="link ws-worktime"
+                  onClick={() => setDock("time")}
+                  title="Temps passé dans Live sur ce projet"
+                >
+                  ⏱ {formatDuration(project.time_spent)}
+                  {project.last_worked_at !== null &&
+                    ` · dernière session ${formatAgo(project.last_worked_at)}`}
+                </button>
+              </>
+            )}
           </small>
         </div>
         <select
@@ -175,6 +198,7 @@ export default function Workspace({ id, onChange, onVaultChange }: Props) {
             [
               ["timeline", "Timeline"],
               ["preview", "Aperçu"],
+              ["time", "Temps"],
               ["infos", "Infos"],
             ] as const
           ).map(([k, label]) => (
@@ -198,6 +222,15 @@ export default function Workspace({ id, onChange, onVaultChange }: Props) {
             {dock === "preview" && (
               <PreviewSection
                 project={project}
+                onChange={() => {
+                  load();
+                  onChange();
+                }}
+              />
+            )}
+            {dock === "time" && (
+              <WorktimeTab
+                projectId={id}
                 onChange={() => {
                   load();
                   onChange();

@@ -53,6 +53,14 @@ Le device n'enregistre que si l'appli tourne : il parle à l'appli en OSC sur `1
 - Comparaison de deux versions, à l'écoute aussi.
 - Supprimer une version rattache ses enfants à sa parente et libère les fichiers que plus rien n'utilise.
 
+## Interface
+
+### Onglet Temps
+
+- Dock du projet → « Temps » : total, 7 et 30 derniers jours, date de la première session, et une grille des 12 dernières semaines (une case par jour, plus elle est orangée, plus tu y as passé de temps ; survol pour le détail).
+- Sessions récentes, avec leur branche si ce n'est pas la principale. La croix supprime une session (elle ne compte plus nulle part).
+- L'en-tête du projet affiche « ⏱ 12 h 30 · dernière session hier » ; un clic ouvre l'onglet. Tout se recharge dès qu'une session se termine (évènement `worktime-changed`).
+
 ## Développer
 
 Prérequis : [Rust](https://rustup.rs), Node 22 et les [prérequis Tauri](https://tauri.app/start/prerequisites/) (WebView2 est déjà présent sur Windows 10/11).
