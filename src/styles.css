@@ -247,3 +247,36 @@ select.status { padding: 4px 8px; font-size: 13px; }
 .progress progress { width: 100%; accent-color: var(--accent); }
 .progress small, .message { color: var(--muted); font-size: 12px; margin: 0; }
 .check { display: flex; align-items: center; gap: 6px; }
+
+.ctxmenu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 220px;
+  padding: 4px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+}
+.ctxmenu button {
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 6px 10px;
+  border-radius: 4px;
+}
+.ctxmenu button:hover:not(:disabled) {
+  background: var(--hover, rgba(255, 255, 255, 0.08));
+}
+.ctxmenu button.danger {
+  color: var(--danger);
+}
+.erow.hidden-item,
+.egroup.hidden-item > .egroup-head {
+  opacity: 0.45;
+}
+.egroup.collapsed > .erow {
+  display: none;
+}

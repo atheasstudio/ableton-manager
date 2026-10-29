@@ -42,7 +42,9 @@ impl Serialize for Error {
 type Result<T> = std::result::Result<T, Error>;
 
 fn now() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64)
 }
 
 #[tauri::command]
@@ -89,7 +91,12 @@ pub async fn scan(app: AppHandle) -> Result<ScanReport> {
 fn scan_blocking(app: &AppHandle) -> Result<ScanReport> {
     let state = app.state::<AppState>();
     let roots = db::list_roots(&state.db.lock().unwrap())?;
-    let mut report = ScanReport { found: 0, updated: 0, removed: 0, errors: vec![] };
+    let mut report = ScanReport {
+        found: 0,
+        updated: 0,
+        removed: 0,
+        errors: vec![],
+    };
 
     for root in roots {
         let started = now();
@@ -100,11 +107,19 @@ fn scan_blocking(app: &AppHandle) -> Result<ScanReport> {
             let als = p.main_set.to_string_lossy().into_owned();
             let _ = app.emit(
                 "scan-progress",
-                ScanProgress { root: root.path.clone(), done: i, total: projects.len(), current: p.name() },
+                ScanProgress {
+                    root: root.path.clone(),
+                    done: i,
+                    total: projects.len(),
+                    current: p.name(),
+                },
             );
 
-            let others: Vec<String> =
-                p.other_sets.iter().map(|o| o.to_string_lossy().into_owned()).collect();
+            let others: Vec<String> = p
+                .other_sets
+                .iter()
+                .map(|o| o.to_string_lossy().into_owned())
+                .collect();
             let name = p.name();
             let mut conn = state.db.lock().unwrap();
             // Dossier d'une branche : il appartient au projet d'origine.
@@ -216,7 +231,9 @@ pub fn open_folder(app: AppHandle, state: State<AppState>, id: i64) -> Result<()
 /// propre connexion à la base.
 async fn in_background<T: Send + 'static>(
     app: AppHandle,
-    work: impl FnOnce(&rusqlite::Connection, &crate::vault::Vault) -> versions::Result<T> + Send + 'static,
+    work: impl FnOnce(&rusqlite::Connection, &crate::vault::Vault) -> versions::Result<T>
+        + Send
+        + 'static,
 ) -> Result<T> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
@@ -293,9 +310,10 @@ pub async fn create_branch(
     version_id: i64,
     name: String,
 ) -> Result<NewBranch> {
-    let created =
-        in_background(app.clone(), move |c, v| versions::create_branch(c, v, version_id, &name, now()))
-            .await?;
+    let created = in_background(app.clone(), move |c, v| {
+        versions::create_branch(c, v, version_id, &name, now())
+    })
+    .await?;
     watcher.sync(&app);
     Ok(created)
 }
@@ -314,18 +332,26 @@ pub fn compare_versions(state: State<AppState>, a: i64, b: i64) -> Result<Diff> 
 #[tauri::command]
 pub fn open_branch(app: AppHandle, state: State<AppState>, branch_id: i64) -> Result<()> {
     let b = versions::branch(&state.db.lock().unwrap(), branch_id)?;
-    app.opener().open_path(b.als_path, None::<&str>).map_err(|e| Error::Other(e.to_string()))
+    app.opener()
+        .open_path(b.als_path, None::<&str>)
+        .map_err(|e| Error::Other(e.to_string()))
 }
 
 #[tauri::command]
 pub fn open_branch_folder(app: AppHandle, state: State<AppState>, branch_id: i64) -> Result<()> {
     let b = versions::branch(&state.db.lock().unwrap(), branch_id)?;
-    app.opener().reveal_item_in_dir(b.als_path).map_err(|e| Error::Other(e.to_string()))
+    app.opener()
+        .reveal_item_in_dir(b.als_path)
+        .map_err(|e| Error::Other(e.to_string()))
 }
 
 /// Donne au set son propre dossier de projet (il partageait le sien).
 #[tauri::command]
-pub fn move_to_own_folder(app: AppHandle, state: State<AppState>, id: i64) -> Result<organize::Moved> {
+pub fn move_to_own_folder(
+    app: AppHandle,
+    state: State<AppState>,
+    id: i64,
+) -> Result<organize::Moved> {
     let moved = organize::move_to_own_folder(&state.db.lock().unwrap(), id)?;
     app.state::<Arc<SaveWatcher>>().sync(&app);
     Ok(moved)
@@ -342,7 +368,11 @@ pub struct VaultInfo {
 pub async fn vault_info(app: AppHandle) -> Result<VaultInfo> {
     in_background(app, |_, v| {
         let (files, bytes) = v.usage()?;
-        Ok(VaultInfo { path: v.root().to_string_lossy().into_owned(), files, bytes })
+        Ok(VaultInfo {
+            path: v.root().to_string_lossy().into_owned(),
+            files,
+            bytes,
+        })
     })
     .await
 }
@@ -376,7 +406,10 @@ pub async fn preview_audio(app: AppHandle, hash: String) -> Result<tauri::ipc::R
 #[tauri::command]
 pub fn find_bounce(state: State<AppState>, project_id: i64) -> Result<Option<String>> {
     let (als, folder) = paths(&state, project_id)?;
-    let set = Path::new(&als).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let set = Path::new(&als)
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
     Ok(previews::find_bounce(Path::new(&folder), &set).map(|p| p.to_string_lossy().into_owned()))
 }
 
@@ -384,7 +417,8 @@ pub fn find_bounce(state: State<AppState>, project_id: i64) -> Result<Option<Str
 #[tauri::command]
 pub async fn import_preview(app: AppHandle, project_id: i64, path: String) -> Result<String> {
     in_background(app, move |c, v| {
-        previews::import_file(c, v, project_id, Path::new(&path), now()).map_err(|e| versions::Error::Other(e.to_string()))
+        previews::import_file(c, v, project_id, Path::new(&path), now())
+            .map_err(|e| versions::Error::Other(e.to_string()))
     })
     .await
 }
@@ -402,7 +436,9 @@ pub async fn render_preview(app: AppHandle, project_id: i64) -> Result<()> {
     tauri::async_runtime::spawn_blocking(move || {
         let link = app.state::<Arc<CaptureLink>>();
         capture::wait_for_set(&link, &als, || {
-            app.opener().open_path(als.clone(), None::<&str>).map_err(|e| e.to_string())
+            app.opener()
+                .open_path(als.clone(), None::<&str>)
+                .map_err(|e| e.to_string())
         })
         .map_err(Error::Other)?;
         link.render(project_id);
@@ -424,7 +460,10 @@ pub fn install_device(app: AppHandle, user_library: Option<String>) -> Result<St
     let library = match user_library {
         Some(dir) => PathBuf::from(dir),
         None => {
-            let docs = app.path().document_dir().map_err(|e| Error::Other(e.to_string()))?;
+            let docs = app
+                .path()
+                .document_dir()
+                .map_err(|e| Error::Other(e.to_string()))?;
             let default = docs.join("Ableton").join("User Library");
             if !default.is_dir() {
                 return Err(Error::Other("NO_USER_LIBRARY".into()));
@@ -475,7 +514,10 @@ pub async fn get_timeline(app: AppHandle, project_id: i64) -> Result<Timeline> {
         let state = app.state::<AppState>();
         let (project, annotations) = {
             let conn = state.db.lock().unwrap();
-            (db::get_project(&conn, project_id)?, annotations::list(&conn, project_id)?)
+            (
+                db::get_project(&conn, project_id)?,
+                annotations::list(&conn, project_id)?,
+            )
         };
         let project = project.ok_or_else(|| Error::Other("projet introuvable".into()))?;
         let set = als_parser::parse_file(&project.als_path).ok();
@@ -501,12 +543,23 @@ pub fn add_annotation(
     beat: f64,
     label: String,
 ) -> Result<Annotation> {
-    Ok(annotations::add(&state.db.lock().unwrap(), project_id, beat, &label, now())?)
+    Ok(annotations::add(
+        &state.db.lock().unwrap(),
+        project_id,
+        beat,
+        &label,
+        now(),
+    )?)
 }
 
 #[tauri::command]
 pub fn update_annotation(state: State<AppState>, id: i64, beat: f64, label: String) -> Result<()> {
-    Ok(annotations::update(&state.db.lock().unwrap(), id, beat, &label)?)
+    Ok(annotations::update(
+        &state.db.lock().unwrap(),
+        id,
+        beat,
+        &label,
+    )?)
 }
 
 #[tauri::command]
@@ -628,7 +681,10 @@ pub fn install_remote_script(
             }
         }
         None => {
-            let docs = app.path().document_dir().map_err(|e| Error::Other(e.to_string()))?;
+            let docs = app
+                .path()
+                .document_dir()
+                .map_err(|e| Error::Other(e.to_string()))?;
             let library = docs.join("Ableton").join("User Library");
             if !library.is_dir() {
                 return Ok(None);
@@ -665,7 +721,15 @@ pub fn add_tree_note(
     y: f64,
     text: String,
 ) -> Result<notes::TreeNote> {
-    Ok(notes::add(&state.db.lock().unwrap(), project_id, version_id, x, y, &text, now())?)
+    Ok(notes::add(
+        &state.db.lock().unwrap(),
+        project_id,
+        version_id,
+        x,
+        y,
+        &text,
+        now(),
+    )?)
 }
 
 #[tauri::command]
@@ -677,10 +741,89 @@ pub fn update_tree_note(
     y: f64,
     text: String,
 ) -> Result<()> {
-    Ok(notes::update(&state.db.lock().unwrap(), id, version_id, x, y, &text)?)
+    Ok(notes::update(
+        &state.db.lock().unwrap(),
+        id,
+        version_id,
+        x,
+        y,
+        &text,
+    )?)
 }
 
 #[tauri::command]
 pub fn delete_tree_note(state: State<AppState>, id: i64) -> Result<()> {
     Ok(notes::delete(&state.db.lock().unwrap(), id)?)
+}
+
+// ---------- Fichiers (explorateur) ----------
+
+#[tauri::command]
+pub fn set_hidden(state: State<AppState>, path: String, hidden: bool) -> Result<()> {
+    Ok(crate::files::set_hidden(
+        &state.db.lock().unwrap(),
+        &path,
+        hidden,
+    )?)
+}
+
+#[tauri::command]
+pub fn rename_path(
+    app: AppHandle,
+    state: State<AppState>,
+    path: String,
+    name: String,
+) -> Result<String> {
+    let new = crate::files::rename(&state.db.lock().unwrap(), &path, &name)?;
+    app.state::<Arc<SaveWatcher>>().sync(&app);
+    Ok(new)
+}
+
+#[tauri::command]
+pub fn move_path(
+    app: AppHandle,
+    state: State<AppState>,
+    path: String,
+    dest_dir: String,
+) -> Result<String> {
+    let new = crate::files::move_into(&state.db.lock().unwrap(), &path, &dest_dir)?;
+    app.state::<Arc<SaveWatcher>>().sync(&app);
+    Ok(new)
+}
+
+#[tauri::command]
+pub fn delete_path(app: AppHandle, state: State<AppState>, path: String) -> Result<usize> {
+    let n = crate::files::delete(&state.db.lock().unwrap(), &path)?;
+    app.state::<Arc<SaveWatcher>>().sync(&app);
+    Ok(n)
+}
+
+#[tauri::command]
+pub fn create_dir(parent: String, name: String) -> Result<String> {
+    Ok(crate::files::create_dir(&parent, &name)?)
+}
+
+#[tauri::command]
+pub async fn delete_branch(
+    app: AppHandle,
+    watcher: State<'_, Arc<SaveWatcher>>,
+    branch_id: i64,
+) -> Result<u64> {
+    let freed = in_background(app.clone(), move |c, v| {
+        versions::delete_branch(c, v, branch_id)
+    })
+    .await?;
+    watcher.sync(&app);
+    Ok(freed)
+}
+
+/// Ajoute le device de capture au set ouvert dans Live (sur le Master).
+#[tauri::command]
+pub async fn live_add_capture(app: AppHandle) -> Result<()> {
+    blocking(app, move |app| {
+        app.state::<Live>()
+            .request("/manager/load_capture", &[], Duration::from_secs(5))?;
+        Ok(())
+    })
+    .await
 }

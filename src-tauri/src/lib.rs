@@ -3,6 +3,7 @@ mod audio;
 mod capture;
 mod commands;
 mod db;
+mod files;
 mod live;
 mod live_window;
 mod notes;
@@ -56,9 +57,16 @@ pub fn run() {
             std::fs::create_dir_all(&dir)?;
             let db_path = dir.join("library.db");
             let conn = db::open(&db_path)?;
-            app.manage(AppState { db: Mutex::new(conn), db_path, data_dir: dir.clone() });
+            app.manage(AppState {
+                db: Mutex::new(conn),
+                db_path,
+                data_dir: dir.clone(),
+            });
             app.manage(watcher::SaveWatcher::start(app.handle().clone()));
-            app.manage(capture::CaptureLink::start(app.handle().clone(), dir.join("captures")));
+            app.manage(capture::CaptureLink::start(
+                app.handle().clone(),
+                dir.join("captures"),
+            ));
             app.manage(live::Live::new());
             Ok(())
         })
@@ -110,6 +118,13 @@ pub fn run() {
             commands::add_tree_note,
             commands::update_tree_note,
             commands::delete_tree_note,
+            commands::set_hidden,
+            commands::rename_path,
+            commands::move_path,
+            commands::delete_path,
+            commands::create_dir,
+            commands::delete_branch,
+            commands::live_add_capture,
         ])
         .run(tauri::generate_context!())
         .expect("erreur au lancement de l'application");

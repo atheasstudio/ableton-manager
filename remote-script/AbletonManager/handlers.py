@@ -6,7 +6,7 @@ il reçoit le Song (ou un faux, dans les tests) par une fonction.
 """
 
 # À changer quand les messages changent : l'appli propose alors de réinstaller le script.
-VERSION = 1
+VERSION = 2
 
 
 class Handlers(object):
@@ -30,6 +30,7 @@ class Handlers(object):
             "/manager/version": lambda song, args: [VERSION],
             "/manager/status": self._status,
             "/manager/jump": self._jump,
+            "/manager/load_capture": self._load_capture,
         }
 
     def handle(self, address, args):
@@ -72,3 +73,30 @@ class Handlers(object):
         if len(args) > 1 and args[1] and not song.is_playing:
             song.continue_playing()
         return [song.current_song_time]
+
+    def _load_capture(self, song, args):
+        """Charge « Ableton Manager Capture » de la User Library sur le Master."""
+        app = self._application() if self._application else None
+        if app is None:
+            raise RuntimeError("application Live indisponible")
+        for device in song.master_track.devices:
+            if device.name.startswith("Ableton Manager Capture"):
+                return ["deja"]
+        item = _find(app.browser.user_library, "Ableton Manager Capture", 6)
+        if item is None:
+            raise RuntimeError("device introuvable dans la User Library : installe-le depuis les réglages")
+        song.view.selected_track = song.master_track
+        app.browser.load_item(item)
+        return ["ok"]
+
+
+def _find(item, name, depth):
+    if item.is_loadable and item.name.startswith(name):
+        return item
+    if depth == 0:
+        return None
+    for child in item.children:
+        found = _find(child, name, depth - 1)
+        if found is not None:
+            return found
+    return None

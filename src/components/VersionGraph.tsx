@@ -43,6 +43,9 @@ interface Props {
   onToggleCheck: (id: number) => void;
   /** Ouvre le set d'une branche dans Live. */
   onOpenBranch: (branchId: number) => void;
+  /** Clic droit sur une version ou sur le nom d'une branche. */
+  onVersionMenu: (v: Version, e: React.MouseEvent) => void;
+  onBranchMenu: (b: Branch, e: React.MouseEvent) => void;
   onAddNote: (versionId: number | null, x: number, y: number) => Promise<TreeNote>;
   onUpdateNote: (note: TreeNote) => void;
   onDeleteNote: (id: number) => void;
@@ -363,6 +366,11 @@ export default function VersionGraph(props: Props) {
                 key={b.id}
                 className="glane-label"
                 style={{ left: x, top: i * LANE - 30, color: laneColor(branches, b.id) }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  props.onBranchMenu(b, e);
+                }}
               >
                 {b.name}
                 <button
@@ -411,6 +419,12 @@ export default function VersionGraph(props: Props) {
                   else props.onSelect(v.id);
                 }}
                 onDoubleClick={() => centerOn(v.id)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  props.onSelect(v.id);
+                  props.onVersionMenu(v, e);
+                }}
                 title={`${v.auto_name}\nMaj + clic : cocher pour comparer`}
               >
                 <span className="gnode-name">{versionLabel(v)}</span>

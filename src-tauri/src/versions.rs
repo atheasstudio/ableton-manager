@@ -80,9 +80,13 @@ fn branch_row(r: &rusqlite::Row) -> rusqlite::Result<Branch> {
 }
 
 pub fn branch(conn: &Connection, id: i64) -> Result<Branch> {
-    conn.query_row(&format!("SELECT {BRANCH_COLUMNS} FROM branches WHERE id = ?1"), [id], branch_row)
-        .optional()?
-        .map_or_else(|| other("branche introuvable"), Ok)
+    conn.query_row(
+        &format!("SELECT {BRANCH_COLUMNS} FROM branches WHERE id = ?1"),
+        [id],
+        branch_row,
+    )
+    .optional()?
+    .map_or_else(|| other("branche introuvable"), Ok)
 }
 
 pub fn branches(conn: &Connection, project_id: i64) -> Result<Vec<Branch>> {
@@ -126,13 +130,19 @@ impl Summary {
             tracks: set
                 .tracks
                 .iter()
-                .map(|t| TrackInfo { name: t.name.clone(), kind: t.kind.as_str().into() })
+                .map(|t| TrackInfo {
+                    name: t.name.clone(),
+                    kind: t.kind.as_str().into(),
+                })
                 .collect(),
             plugins: set.plugins.iter().map(|p| p.name.clone()).collect(),
             locators: set
                 .locators
                 .iter()
-                .map(|l| LocatorInfo { time: l.time, name: l.name.clone() })
+                .map(|l| LocatorInfo {
+                    time: l.time,
+                    name: l.name.clone(),
+                })
                 .collect(),
         }
     }
@@ -230,7 +240,12 @@ fn version_files(conn: &Connection, id: i64) -> Result<Vec<VersionFile>> {
     let mut stmt =
         conn.prepare("SELECT name, path, rel_path, hash FROM version_files WHERE version_id = ?1")?;
     let rows = stmt.query_map([id], |r| {
-        Ok(VersionFile { name: r.get(0)?, path: r.get(1)?, rel_path: r.get(2)?, hash: r.get(3)? })
+        Ok(VersionFile {
+            name: r.get(0)?,
+            path: r.get(1)?,
+            rel_path: r.get(2)?,
+            hash: r.get(3)?,
+        })
     })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
@@ -282,15 +297,23 @@ fn same_content(conn: &Connection, path: &Path, hash: &str) -> bool {
 
 /// Active les versions d'un projet : crée la branche principale, importe au
 /// besoin les sauvegardes du dossier `Backup/` de Live, puis l'état actuel.
-pub fn enable(conn: &Connection, vault: &Vault, project_id: i64, import_backups: bool, now: i64) -> Result<usize> {
+pub fn enable(
+    conn: &Connection,
+    vault: &Vault,
+    project_id: i64,
+    import_backups: bool,
+    now: i64,
+) -> Result<usize> {
     let _guard = lock();
     if !branches(conn, project_id)?.is_empty() {
         return other("les versions sont déjà activées pour ce projet");
     }
     let (als, folder): (String, String) = conn
-        .query_row("SELECT als_path, folder FROM projects WHERE id = ?1", [project_id], |r| {
-            Ok((r.get(0)?, r.get(1)?))
-        })
+        .query_row(
+            "SELECT als_path, folder FROM projects WHERE id = ?1",
+            [project_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
         .optional()?
         .map_or_else(|| other("projet introuvable"), Ok)?;
     conn.execute(
@@ -319,9 +342,13 @@ pub fn enable(conn: &Connection, vault: &Vault, project_id: i64, import_backups:
 /// Sauvegardes automatiques de Live pour ce set (`Backup/<set> [date].als`),
 /// de la plus ancienne à la plus récente.
 fn live_backups(als: &Path) -> Vec<(PathBuf, i64)> {
-    let (Some(dir), Some(stem)) = (als.parent(), als.file_stem()) else { return vec![] };
+    let (Some(dir), Some(stem)) = (als.parent(), als.file_stem()) else {
+        return vec![];
+    };
     let prefix = format!("{} [", stem.to_string_lossy());
-    let Ok(entries) = fs::read_dir(dir.join("Backup")) else { return vec![] };
+    let Ok(entries) = fs::read_dir(dir.join("Backup")) else {
+        return vec![];
+    };
     let mut found: Vec<(PathBuf, i64)> = entries
         .flatten()
         .filter(|e| {
@@ -336,22 +363,38 @@ fn live_backups(als: &Path) -> Vec<(PathBuf, i64)> {
 }
 
 /// Crée une version si le .als de la branche a changé depuis la dernière.
-pub fn snapshot(conn: &Connection, vault: &Vault, branch_id: i64, source: &str) -> Result<Option<i64>> {
+pub fn snapshot(
+    conn: &Connection,
+    vault: &Vault,
+    branch_id: i64,
+    source: &str,
+) -> Result<Option<i64>> {
     let _guard = lock();
     snapshot_unlocked(conn, vault, branch_id, source)
 }
 
-fn snapshot_unlocked(conn: &Connection, vault: &Vault, branch_id: i64, source: &str) -> Result<Option<i64>> {
+fn snapshot_unlocked(
+    conn: &Connection,
+    vault: &Vault,
+    branch_id: i64,
+    source: &str,
+) -> Result<Option<i64>> {
     let b = branch(conn, branch_id)?;
     let path = PathBuf::from(&b.als_path);
-    let Ok(meta) = fs::metadata(&path) else { return Ok(None) };
+    let Ok(meta) = fs::metadata(&path) else {
+        return Ok(None);
+    };
     snapshot_file(conn, vault, &b, &path, mtime(&meta) / 1000, source)
 }
 
 fn head_hash(conn: &Connection, b: &Branch) -> Result<Option<String>> {
-    let Some(head) = b.head_id else { return Ok(None) };
+    let Some(head) = b.head_id else {
+        return Ok(None);
+    };
     Ok(conn
-        .query_row("SELECT als_hash FROM versions WHERE id = ?1", [head], |r| r.get(0))
+        .query_row("SELECT als_hash FROM versions WHERE id = ?1", [head], |r| {
+            r.get(0)
+        })
         .optional()?)
 }
 
@@ -381,13 +424,20 @@ fn snapshot_file(
         let rel = sample.relative_path.as_deref().map(|r| folder.join(r));
         let abs = sample.path.as_deref().map(PathBuf::from);
         // Live cherche d'abord dans le projet quand le chemin y est relatif.
-        let candidates = if sample.is_project_relative() { [rel, abs] } else { [abs, rel] };
+        let candidates = if sample.is_project_relative() {
+            [rel, abs]
+        } else {
+            [abs, rel]
+        };
         let stored = candidates
             .into_iter()
             .flatten()
             .find(|p| p.is_file())
             .and_then(|p| file_hash(conn, &p, Some(vault)).ok());
-        let rel_path = sample.relative_path.clone().filter(|_| sample.is_project_relative());
+        let rel_path = sample
+            .relative_path
+            .clone()
+            .filter(|_| sample.is_project_relative());
         files.push((name, sample.path.clone(), rel_path, stored));
     }
 
@@ -435,10 +485,20 @@ fn snapshot_file(
         )?;
         for (name, path, rel_path, stored) in &files {
             let (hash, size) = stored.clone().unzip();
-            insert.execute(params![id, name, path, rel_path, hash, size.map(|s| s as i64)])?;
+            insert.execute(params![
+                id,
+                name,
+                path,
+                rel_path,
+                hash,
+                size.map(|s| s as i64)
+            ])?;
         }
     }
-    tx.execute("UPDATE branches SET head_id = ?2 WHERE id = ?1", params![b.id, id])?;
+    tx.execute(
+        "UPDATE branches SET head_id = ?2 WHERE id = ?1",
+        params![b.id, id],
+    )?;
     tx.commit()?;
     Ok(Some(id))
 }
@@ -462,7 +522,13 @@ fn live_path(p: &Path) -> String {
 /// audios externes disparus ou modifiés copiés dans `Samples/Imported`, et le
 /// .als (réécrit si des audios ont changé de place). Renvoie les audios
 /// qui n'ont pas pu être recréés.
-fn materialize(conn: &Connection, vault: &Vault, id: i64, folder: &Path, als_path: &Path) -> Result<Vec<String>> {
+fn materialize(
+    conn: &Connection,
+    vault: &Vault,
+    id: i64,
+    folder: &Path,
+    als_path: &Path,
+) -> Result<Vec<String>> {
     let v = version(conn, id)?;
     let mut relocations = HashMap::new();
     let mut lost = vec![];
@@ -486,8 +552,12 @@ fn materialize(conn: &Connection, vault: &Vault, id: i64, folder: &Path, als_pat
         }
         let mut dest = folder.join("Samples/Imported").join(&f.name);
         if dest.exists() && !same_content(conn, &dest, &hash) {
-            let stem = Path::new(&f.name).file_stem().map(|s| s.to_string_lossy().into_owned());
-            let ext = Path::new(&f.name).extension().map(|e| e.to_string_lossy().into_owned());
+            let stem = Path::new(&f.name)
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned());
+            let ext = Path::new(&f.name)
+                .extension()
+                .map(|e| e.to_string_lossy().into_owned());
             let unique = format!("{} ({})", stem.unwrap_or_default(), &hash[..8]);
             dest.set_file_name(match ext {
                 Some(ext) => format!("{unique}.{ext}"),
@@ -498,7 +568,13 @@ fn materialize(conn: &Connection, vault: &Vault, id: i64, folder: &Path, als_pat
             vault.restore_to(&hash, &dest)?;
         }
         let relative_path = live_path(dest.strip_prefix(folder).unwrap_or(&dest));
-        relocations.insert(original.clone(), Relocation { path: live_path(&dest), relative_path });
+        relocations.insert(
+            original.clone(),
+            Relocation {
+                path: live_path(&dest),
+                relative_path,
+            },
+        );
     }
 
     let mut als = vault.read(&v.als_hash)?;
@@ -528,7 +604,13 @@ pub fn restore(conn: &Connection, vault: &Vault, id: i64, now: i64) -> Result<Re
     let v = version(conn, id)?;
     snapshot_unlocked(conn, vault, v.branch_id, "save")?;
     let b = branch(conn, v.branch_id)?;
-    let lost = materialize(conn, vault, id, Path::new(&b.folder), Path::new(&b.als_path))?;
+    let lost = materialize(
+        conn,
+        vault,
+        id,
+        Path::new(&b.folder),
+        Path::new(&b.als_path),
+    )?;
     let created = snapshot_file(conn, vault, &b, Path::new(&b.als_path), now, "restore")?;
     if let Some(new) = created {
         // Même contenu que la version restaurée : même aperçu.
@@ -539,7 +621,10 @@ pub fn restore(conn: &Connection, vault: &Vault, id: i64, now: i64) -> Result<Re
             params![new, format!("Retour à « {} »", label(&v)), v.id],
         )?;
     }
-    Ok(RestoreReport { version_id: created.or(branch(conn, b.id)?.head_id), lost })
+    Ok(RestoreReport {
+        version_id: created.or(branch(conn, b.id)?.head_id),
+        lost,
+    })
 }
 
 fn label(v: &Version) -> String {
@@ -549,7 +634,13 @@ fn label(v: &Version) -> String {
 /// Caractères interdits dans un nom de dossier Windows.
 fn safe_name(name: &str) -> String {
     name.chars()
-        .map(|c| if "<>:\"/\\|?*".contains(c) || c.is_control() { '-' } else { c })
+        .map(|c| {
+            if "<>:\"/\\|?*".contains(c) || c.is_control() {
+                '-'
+            } else {
+                c
+            }
+        })
         .collect::<String>()
         .trim_matches([' ', '.'])
         .to_owned()
@@ -564,7 +655,13 @@ pub struct NewBranch {
 /// Crée une branche à partir de la version `id` : un nouveau dossier de projet
 /// à côté de l'original (« <projet> - <branche> Project ») avec le .als et
 /// ses audios. Les sauvegardes de ce dossier alimentent ensuite la branche.
-pub fn create_branch(conn: &Connection, vault: &Vault, id: i64, name: &str, now: i64) -> Result<NewBranch> {
+pub fn create_branch(
+    conn: &Connection,
+    vault: &Vault,
+    id: i64,
+    name: &str,
+    now: i64,
+) -> Result<NewBranch> {
     let _guard = lock();
     let name = name.trim();
     let folder_part = safe_name(name);
@@ -576,10 +673,18 @@ pub fn create_branch(conn: &Connection, vault: &Vault, id: i64, name: &str, now:
     if all.iter().any(|b| b.name.eq_ignore_ascii_case(name)) {
         return other(format!("la branche « {name} » existe déjà"));
     }
-    let main = all.iter().find(|b| b.is_main).map_or_else(|| other("branche principale introuvable"), Ok)?;
+    let main = all
+        .iter()
+        .find(|b| b.is_main)
+        .map_or_else(|| other("branche principale introuvable"), Ok)?;
     // Nom du projet, pas du dossier : plusieurs sets peuvent partager un dossier.
-    let base: String = conn.query_row("SELECT name FROM projects WHERE id = ?1", [v.project_id], |r| r.get(0))?;
-    let folder = Path::new(&main.folder).with_file_name(format!("{} - {folder_part} Project", safe_name(&base)));
+    let base: String = conn.query_row(
+        "SELECT name FROM projects WHERE id = ?1",
+        [v.project_id],
+        |r| r.get(0),
+    )?;
+    let folder = Path::new(&main.folder)
+        .with_file_name(format!("{} - {folder_part} Project", safe_name(&base)));
     if folder.exists() {
         return other(format!("le dossier {} existe déjà", folder.display()));
     }
@@ -588,15 +693,58 @@ pub fn create_branch(conn: &Connection, vault: &Vault, id: i64, name: &str, now:
     conn.execute(
         "INSERT INTO branches (project_id, name, folder, als_path, base_id, head_id, created_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?6)",
-        params![v.project_id, name, folder.to_string_lossy(), als_path.to_string_lossy(), v.id, now],
+        params![
+            v.project_id,
+            name,
+            folder.to_string_lossy(),
+            als_path.to_string_lossy(),
+            v.id,
+            now
+        ],
     )?;
     let branch = branch(conn, conn.last_insert_rowid())?;
     Ok(NewBranch { branch, lost })
 }
 
+/// Supprime une branche secondaire, ses versions et son dossier (corbeille).
+/// Renvoie les octets libérés dans le coffre.
+pub fn delete_branch(conn: &Connection, vault: &Vault, id: i64) -> Result<u64> {
+    let b = branch(conn, id)?;
+    if b.is_main {
+        return other("la branche principale ne peut pas être supprimée");
+    }
+    {
+        let _guard = lock();
+        let tx = conn.unchecked_transaction()?;
+        // Les versions d'autres branches parties de celle-ci remontent à sa base.
+        tx.execute(
+            "UPDATE versions SET parent_id = ?2 WHERE branch_id != ?1
+                AND parent_id IN (SELECT id FROM versions WHERE branch_id = ?1)",
+            params![id, b.base_id],
+        )?;
+        tx.execute(
+            "UPDATE branches SET base_id = ?2 WHERE id != ?1
+                AND base_id IN (SELECT id FROM versions WHERE branch_id = ?1)",
+            params![id, b.base_id],
+        )?;
+        tx.execute("DELETE FROM branches WHERE id = ?1", [id])?;
+        tx.commit()?;
+    }
+    if Path::new(&b.folder).exists() {
+        if let Err(e) = trash::delete(&b.folder) {
+            eprintln!("corbeille : {e}");
+        }
+    }
+    let _guard = lock();
+    Ok(collect_garbage(conn, vault)?.1)
+}
+
 pub fn rename(conn: &Connection, id: i64, name: &str) -> Result<()> {
     let name = Some(name.trim()).filter(|n| !n.is_empty());
-    conn.execute("UPDATE versions SET name = ?2 WHERE id = ?1", params![id, name])?;
+    conn.execute(
+        "UPDATE versions SET name = ?2 WHERE id = ?1",
+        params![id, name],
+    )?;
     Ok(())
 }
 
@@ -606,15 +754,29 @@ pub fn rename(conn: &Connection, id: i64, name: &str) -> Result<()> {
 pub fn delete(conn: &Connection, vault: &Vault, id: i64) -> Result<u64> {
     let _guard = lock();
     let parent: Option<i64> = conn
-        .query_row("SELECT parent_id FROM versions WHERE id = ?1", [id], |r| r.get(0))
+        .query_row("SELECT parent_id FROM versions WHERE id = ?1", [id], |r| {
+            r.get(0)
+        })
         .optional()?
         .map_or_else(|| other("version introuvable"), Ok)?;
     let tx = conn.unchecked_transaction()?;
-    tx.execute("UPDATE versions SET parent_id = ?2 WHERE parent_id = ?1", params![id, parent])?;
-    tx.execute("UPDATE branches SET head_id = ?2 WHERE head_id = ?1", params![id, parent])?;
-    tx.execute("UPDATE branches SET base_id = ?2 WHERE base_id = ?1", params![id, parent])?;
+    tx.execute(
+        "UPDATE versions SET parent_id = ?2 WHERE parent_id = ?1",
+        params![id, parent],
+    )?;
+    tx.execute(
+        "UPDATE branches SET head_id = ?2 WHERE head_id = ?1",
+        params![id, parent],
+    )?;
+    tx.execute(
+        "UPDATE branches SET base_id = ?2 WHERE base_id = ?1",
+        params![id, parent],
+    )?;
     // Les notes accrochées suivent la version parente.
-    tx.execute("UPDATE tree_notes SET version_id = ?2 WHERE version_id = ?1", params![id, parent])?;
+    tx.execute(
+        "UPDATE tree_notes SET version_id = ?2 WHERE version_id = ?1",
+        params![id, parent],
+    )?;
     tx.execute("DELETE FROM versions WHERE id = ?1", [id])?;
     tx.commit()?;
     Ok(collect_garbage(conn, vault)?.1)
@@ -623,13 +785,18 @@ pub fn delete(conn: &Connection, vault: &Vault, id: i64) -> Result<u64> {
 pub(crate) fn collect_garbage(conn: &Connection, vault: &Vault) -> Result<(usize, u64)> {
     const PREVIEWS: &str = "SELECT preview_hash FROM versions WHERE preview_hash IS NOT NULL
                             UNION SELECT preview_hash FROM projects WHERE preview_hash IS NOT NULL";
-    conn.execute(&format!("DELETE FROM previews WHERE hash NOT IN ({PREVIEWS})"), [])?;
+    conn.execute(
+        &format!("DELETE FROM previews WHERE hash NOT IN ({PREVIEWS})"),
+        [],
+    )?;
     let mut stmt = conn.prepare(&format!(
         "SELECT als_hash FROM versions
          UNION {PREVIEWS}
          UNION SELECT hash FROM version_files WHERE hash IS NOT NULL"
     ))?;
-    let used = stmt.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<HashSet<String>>>()?;
+    let used = stmt
+        .query_map([], |r| r.get(0))?
+        .collect::<rusqlite::Result<HashSet<String>>>()?;
     Ok(vault.collect_garbage(&used)?)
 }
 
@@ -658,7 +825,10 @@ fn load_content(conn: &Connection, id: i64) -> Result<Content> {
         |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
     )?;
     let summary: Summary = serde_json::from_str(&summary).unwrap_or_default();
-    let samples = version_files(conn, id)?.into_iter().map(|f| f.name).collect();
+    let samples = version_files(conn, id)?
+        .into_iter()
+        .map(|f| f.name)
+        .collect();
     Ok(Content {
         tempo,
         time_sig,
@@ -714,11 +884,19 @@ fn track_key(t: &TrackInfo) -> TrackInfo {
         Some((n, rest)) if !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()) => rest,
         _ => &t.name,
     };
-    TrackInfo { name: name.to_owned(), kind: t.kind.clone() }
+    TrackInfo {
+        name: name.to_owned(),
+        kind: t.kind.clone(),
+    }
 }
 
 fn diff_content(a: &Content, b: &Content) -> Diff {
-    let loc = |c: &Content| c.locators.iter().map(|l| l.name.clone()).collect::<Vec<_>>();
+    let loc = |c: &Content| {
+        c.locators
+            .iter()
+            .map(|l| l.name.clone())
+            .collect::<Vec<_>>()
+    };
     let tracks = |c: &Content| c.tracks.iter().map(track_key).collect::<Vec<_>>();
     Diff {
         tempo: changed(a.tempo, b.tempo),
@@ -736,7 +914,10 @@ fn diff_content(a: &Content, b: &Content) -> Diff {
 }
 
 pub fn compare(conn: &Connection, a: i64, b: i64) -> Result<Diff> {
-    Ok(diff_content(&load_content(conn, a)?, &load_content(conn, b)?))
+    Ok(diff_content(
+        &load_content(conn, a)?,
+        &load_content(conn, b)?,
+    ))
 }
 
 /// Nom automatique d'une version : ses changements principaux.
@@ -793,7 +974,9 @@ mod tests {
     fn write_set(path: &Path, tracks: &[&str], tempo: f64, samples: &[(&str, &str)]) {
         let tracks: String = tracks
             .iter()
-            .map(|t| format!(r#"<AudioTrack><Name><EffectiveName Value="{t}" /></Name></AudioTrack>"#))
+            .map(|t| {
+                format!(r#"<AudioTrack><Name><EffectiveName Value="{t}" /></Name></AudioTrack>"#)
+            })
             .collect();
         let samples: String = samples
             .iter()
@@ -836,7 +1019,14 @@ mod tests {
         )
         .unwrap();
         let project = conn.last_insert_rowid();
-        Fixture { _dir: dir, root, conn, vault, project, als }
+        Fixture {
+            _dir: dir,
+            root,
+            conn,
+            vault,
+            project,
+            als,
+        }
     }
 
     #[test]
@@ -848,16 +1038,38 @@ mod tests {
         fs::write(&pack, b"clap").unwrap();
         fs::create_dir_all(folder.join("Samples/Recorded")).unwrap();
         fs::write(folder.join("Samples/Recorded/voix.wav"), b"voix").unwrap();
-        let samples = [("", live_path(&pack)), ("Samples/Recorded/voix.wav", "C:/vieux/voix.wav".into())];
+        let samples = [
+            ("", live_path(&pack)),
+            ("Samples/Recorded/voix.wav", "C:/vieux/voix.wav".into()),
+        ];
         let samples: Vec<(&str, &str)> = samples.iter().map(|(a, b)| (*a, b.as_str())).collect();
 
         // Deux sauvegardes de Live dans Backup/, puis l'état actuel.
-        write_set(&folder.join("Backup/woodkid [2025-09-01 114124].als"), &["Kick"], 120.0, &samples);
-        write_set(&folder.join("Backup/woodkid [2025-09-01 122623].als"), &["Kick"], 120.0, &samples);
-        write_set(&folder.join("Backup/autre set [2025-09-01 122623].als"), &["X"], 90.0, &[]);
+        write_set(
+            &folder.join("Backup/woodkid [2025-09-01 114124].als"),
+            &["Kick"],
+            120.0,
+            &samples,
+        );
+        write_set(
+            &folder.join("Backup/woodkid [2025-09-01 122623].als"),
+            &["Kick"],
+            120.0,
+            &samples,
+        );
+        write_set(
+            &folder.join("Backup/autre set [2025-09-01 122623].als"),
+            &["X"],
+            90.0,
+            &[],
+        );
         write_set(&f.als, &["Kick", "Basse"], 128.0, &samples);
 
-        assert_eq!(enable(&f.conn, &f.vault, f.project, true, NOW).unwrap(), 2, "backup identique ignoré");
+        assert_eq!(
+            enable(&f.conn, &f.vault, f.project, true, NOW).unwrap(),
+            2,
+            "backup identique ignoré"
+        );
         let versions = list(&f.conn, f.project).unwrap();
         assert_eq!(versions.len(), 2);
         assert_eq!(versions[1].auto_name, "Première version");
@@ -869,10 +1081,20 @@ mod tests {
         assert_eq!(f.vault.usage().unwrap().0, 4);
 
         let main = branches(&f.conn, f.project).unwrap()[0].id;
-        assert_eq!(snapshot(&f.conn, &f.vault, main, "save").unwrap(), None, "rien n'a changé");
+        assert_eq!(
+            snapshot(&f.conn, &f.vault, main, "save").unwrap(),
+            None,
+            "rien n'a changé"
+        );
 
         let d = compare(&f.conn, versions[1].id, versions[0].id).unwrap();
-        assert_eq!(d.tracks_added, [TrackInfo { name: "Basse".into(), kind: "audio".into() }]);
+        assert_eq!(
+            d.tracks_added,
+            [TrackInfo {
+                name: "Basse".into(),
+                kind: "audio".into()
+            }]
+        );
         assert_eq!(d.tempo, Some((Some(120.0), Some(128.0))));
         assert!(d.plugins_added.is_empty() && d.samples_removed.is_empty());
     }
@@ -888,7 +1110,10 @@ mod tests {
         fs::create_dir_all(voix.parent().unwrap()).unwrap();
         fs::write(&voix, b"voix").unwrap();
         let pack_live = live_path(&pack);
-        let samples = [("", pack_live.as_str()), ("Samples/Recorded/voix.wav", "C:/x/voix.wav")];
+        let samples = [
+            ("", pack_live.as_str()),
+            ("Samples/Recorded/voix.wav", "C:/x/voix.wav"),
+        ];
 
         write_set(&f.als, &["Kick"], 120.0, &samples);
         enable(&f.conn, &f.vault, f.project, false, NOW).unwrap();
@@ -907,22 +1132,43 @@ mod tests {
         assert_eq!(versions.len(), 3, "état actuel sauvegardé + restauration");
         assert_eq!(versions[0].source, "restore");
         assert_eq!(versions[0].auto_name, "Retour à « Première version »");
-        assert_eq!(fs::read(&voix).unwrap(), b"voix", "enregistrement remis en place");
+        assert_eq!(
+            fs::read(&voix).unwrap(),
+            b"voix",
+            "enregistrement remis en place"
+        );
         let imported = folder.join("Samples/Imported/clap.wav");
-        assert_eq!(fs::read(&imported).unwrap(), b"clap v1", "ancien sample recopié dans le projet");
+        assert_eq!(
+            fs::read(&imported).unwrap(),
+            b"clap v1",
+            "ancien sample recopié dans le projet"
+        );
         let set = als_parser::parse_file(&f.als).unwrap();
         assert_eq!(set.tracks.len(), 2, "Kick + Clips");
-        let clap = set.samples.iter().find(|s| s.file_name() == Some("clap.wav")).unwrap();
+        let clap = set
+            .samples
+            .iter()
+            .find(|s| s.file_name() == Some("clap.wav"))
+            .unwrap();
         assert_eq!(clap.path.as_deref(), Some(live_path(&imported).as_str()));
-        assert_eq!(clap.relative_path.as_deref(), Some("Samples/Imported/clap.wav"));
-        assert_eq!(fs::read(&pack).unwrap(), b"clap v2 plus long", "l'original n'est pas touché");
+        assert_eq!(
+            clap.relative_path.as_deref(),
+            Some("Samples/Imported/clap.wav")
+        );
+        assert_eq!(
+            fs::read(&pack).unwrap(),
+            b"clap v2 plus long",
+            "l'original n'est pas touché"
+        );
 
         // Branche depuis la version avec la piste Pad.
         let pad = versions[1].id;
         let new = create_branch(&f.conn, &f.vault, pad, "version club", NOW).unwrap();
         let b = new.branch;
         assert_eq!(b.base_id, Some(pad));
-        let branch_als = f.root.join("Projets/woodkid - version club Project/woodkid.als");
+        let branch_als = f
+            .root
+            .join("Projets/woodkid - version club Project/woodkid.als");
         assert_eq!(PathBuf::from(&b.als_path), branch_als);
         assert_eq!(als_parser::parse_file(&branch_als).unwrap().tracks.len(), 3);
         assert!(create_branch(&f.conn, &f.vault, pad, "Version Club", NOW).is_err());
@@ -940,29 +1186,48 @@ mod tests {
         let before = f.vault.usage().unwrap().0;
         delete(&f.conn, &f.vault, pad).unwrap();
         let versions = list(&f.conn, f.project).unwrap();
-        assert_eq!(versions.iter().find(|v| v.id == on_branch).unwrap().parent_id, Some(v1));
+        assert_eq!(
+            versions
+                .iter()
+                .find(|v| v.id == on_branch)
+                .unwrap()
+                .parent_id,
+            Some(v1)
+        );
         assert_eq!(branch(&f.conn, b.id).unwrap().base_id, Some(v1));
-        assert!(f.vault.usage().unwrap().0 < before, "le .als supprimé quitte le coffre");
+        assert!(
+            f.vault.usage().unwrap().0 < before,
+            "le .als supprimé quitte le coffre"
+        );
         let _ = main;
     }
 
     #[test]
     fn real_projects_roundtrip() {
-        let Ok(dir) = std::env::var("ALS_FIXTURES") else { return };
+        let Ok(dir) = std::env::var("ALS_FIXTURES") else {
+            return;
+        };
         let f = fixture();
         for p in crate::scanner::find_projects(Path::new(&dir)) {
             f.conn
                 .execute(
                     "INSERT INTO projects (folder, als_path, name, modified_at, scanned_at)
                      VALUES (?1, ?2, ?3, 0, 0)",
-                    params![p.folder.to_string_lossy(), p.main_set.to_string_lossy(), p.name()],
+                    params![
+                        p.folder.to_string_lossy(),
+                        p.main_set.to_string_lossy(),
+                        p.name()
+                    ],
                 )
                 .unwrap();
             let id = f.conn.last_insert_rowid();
             let n = enable(&f.conn, &f.vault, id, true, 1).unwrap();
             println!("{} : {n} versions", p.name());
             for v in list(&f.conn, id).unwrap().iter().rev() {
-                println!("  {} · {} audios ({} introuvables) · {}", v.source, v.files, v.missing, v.auto_name);
+                println!(
+                    "  {} · {} audios ({} introuvables) · {}",
+                    v.source, v.files, v.missing, v.auto_name
+                );
             }
         }
         let (count, bytes) = f.vault.usage().unwrap();
