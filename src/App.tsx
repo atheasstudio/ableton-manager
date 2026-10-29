@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { ask, open } from "@tauri-apps/plugin-dialog";
 import {
   api,
+  CaptureStatus,
   Filter,
+  NO_USER_LIBRARY,
   formatSize,
   ProjectSummary,
   Root,
@@ -13,6 +15,7 @@ import {
   VaultInfo,
 } from "./api";
 import ProjectList from "./components/ProjectList";
+import PreviewPlayer from "./components/PreviewPlayer";
 import ProjectPanel from "./components/ProjectPanel";
 
 /** Dossier proposé au premier lancement. */
@@ -29,6 +32,9 @@ export default function App() {
   const [message, setMessage] = useState<string | null>(null);
   const [vault, setVault] = useState<VaultInfo | null>(null);
   const [movingVault, setMovingVault] = useState(false);
+  const [capture, setCapture] = useState<CaptureStatus | null>(null);
+  const [deviceMessage, setDeviceMessage] = useState<string | null>(null);
+  const [playing, setPlaying] = useState<ProjectSummary | null>(null);
 
   const refreshVault = useCallback(() => {
     api.vaultInfo().then(setVault, () => setVault(null));
@@ -43,14 +49,48 @@ export default function App() {
     api.listRoots().then(setRoots);
     refreshVault();
     const unlisten = listen<ScanProgress>("scan-progress", (e) => setProgress(e.payload));
+    const pollCapture = () => api.captureStatus().then(setCapture, () => setCapture(null));
+    pollCapture();
+    const timer = setInterval(pollCapture, 5000);
+    // Un nouvel aperçu change l'icône d'écoute de la liste.
+    const unlistenPreview = listen("preview-changed", () => refreshRef.current());
     return () => {
+      clearInterval(timer);
       unlisten.then((f) => f());
+      unlistenPreview.then((f) => f());
     };
   }, []);
+
+  const refreshRef = useRef(refresh);
+  refreshRef.current = refresh;
 
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  async function installDevice() {
+    setDeviceMessage(null);
+    try {
+      let path: string;
+      try {
+        path = await api.installDevice();
+      } catch (e) {
+        if (String(e) !== NO_USER_LIBRARY) throw e;
+        const dir = await open({
+          directory: true,
+          title: "Dossier « User Library » de Live (Réglages > Bibliothèque)",
+        });
+        if (typeof dir !== "string") return;
+        path = await api.installDevice(dir);
+      }
+      setDeviceMessage(
+        `Installé : ${path}. Dans Live, glisse « Ableton Manager Capture » (User Library > Presets > ` +
+          "Audio Effects > Max Audio Effect) sur le Master, puis enregistre-le dans ton set par défaut.",
+      );
+    } catch (e) {
+      setDeviceMessage(`Erreur : ${e}`);
+    }
+  }
 
   async function scan() {
     setScanning(true);
@@ -185,6 +225,26 @@ export default function App() {
           </button>
         </section>
 
+        <section>
+          <h2>Pré-écoute</h2>
+          <small className="message">
+            {!capture?.listening
+              ? "Port de capture occupé : une autre instance de l'appli tourne ?"
+              : capture.device
+                ? capture.recording
+                  ? "● Écoute en cours d'enregistrement"
+                  : "Device de capture connecté"
+                : "Device de capture non détecté dans Live"}
+          </small>
+          {capture?.open_set && (
+            <small className="message" title="Set ouvert dans Live">
+              Live : {capture.open_set}
+            </small>
+          )}
+          <button onClick={installDevice}>Installer le device…</button>
+          {deviceMessage && <p className="message">{deviceMessage}</p>}
+        </section>
+
         {tags.length > 0 && (
           <section>
             <h2>Tags</h2>
@@ -212,7 +272,28 @@ export default function App() {
           onChange={(e) => setFilter({ ...filter, query: e.target.value })}
           autoFocus
         />
-        <ProjectList projects={projects} selected={selected} onSelect={setSelected} />
+        <ProjectList
+          projects={projects}
+          selected={selected}
+          onSelect={setSelected}
+          playing={playing?.id ?? null}
+          onPlay={(p) => setPlaying(p)}
+        />
+        {playing?.preview_hash && (
+          <div className="now-playing">
+            <strong title={playing.folder}>{playing.name}</strong>
+            <PreviewPlayer
+              key={playing.preview_hash}
+              hash={playing.preview_hash}
+              tempo={playing.tempo}
+              autoPlay
+              compact
+            />
+            <button className="icon" onClick={() => setPlaying(null)} aria-label="Fermer le lecteur">
+              ×
+            </button>
+          </div>
+        )}
       </main>
 
       {selected !== null && (

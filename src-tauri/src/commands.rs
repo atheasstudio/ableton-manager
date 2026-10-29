@@ -8,7 +8,9 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
+use crate::capture::{self, CaptureLink, CaptureStatus};
 use crate::db::{self, Filter, ProjectDetail, ProjectSummary, Root};
+use crate::previews::{self, PreviewInfo};
 use crate::versions::{self, Branch, Diff, NewBranch, RestoreReport, VersionRow};
 use crate::watcher::SaveWatcher;
 use crate::{scanner, AppState, VAULT_DIR};
@@ -20,6 +22,8 @@ pub enum Error {
     Db(#[from] rusqlite::Error),
     #[error("{0}")]
     Versions(#[from] versions::Error),
+    #[error("{0}")]
+    Previews(#[from] previews::Error),
     #[error("{0}")]
     Other(String),
 }
@@ -255,7 +259,16 @@ pub async fn enable_versions(
 /// Crée une version tout de suite (sans attendre une sauvegarde).
 #[tauri::command]
 pub async fn snapshot_now(app: AppHandle, branch_id: i64) -> Result<Option<i64>> {
-    in_background(app, move |c, v| versions::snapshot(c, v, branch_id, "manual")).await
+    in_background(app, move |c, v| {
+        let id = versions::snapshot(c, v, branch_id, "manual")?;
+        if let Some(id) = id {
+            if let Err(e) = previews::on_new_version(c, v, id, now()) {
+                eprintln!("aperçu de la version : {e}");
+            }
+        }
+        Ok(id)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -330,4 +343,83 @@ pub async fn set_vault_dir(app: AppHandle, path: String) -> Result<()> {
         Ok(())
     })
     .await
+}
+
+// ---------- Pré-écoute ----------
+
+#[tauri::command]
+pub fn get_preview(state: State<AppState>, hash: String) -> Result<Option<PreviewInfo>> {
+    Ok(previews::info(&state.db.lock().unwrap(), &hash)?)
+}
+
+/// Le MP3 de l'aperçu, en binaire.
+#[tauri::command]
+pub async fn preview_audio(app: AppHandle, hash: String) -> Result<tauri::ipc::Response> {
+    let bytes = in_background(app, move |_, v| Ok(v.read(&hash)?)).await?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+/// Bounce trouvé dans le dossier du projet, s'il y en a un.
+#[tauri::command]
+pub fn find_bounce(state: State<AppState>, project_id: i64) -> Result<Option<String>> {
+    let (als, folder) = paths(&state, project_id)?;
+    let set = Path::new(&als).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    Ok(previews::find_bounce(Path::new(&folder), &set).map(|p| p.to_string_lossy().into_owned()))
+}
+
+/// Prend un fichier audio comme aperçu du projet. Renvoie l'aperçu.
+#[tauri::command]
+pub async fn import_preview(app: AppHandle, project_id: i64, path: String) -> Result<String> {
+    in_background(app, move |c, v| {
+        previews::import_file(c, v, project_id, Path::new(&path), now()).map_err(|e| versions::Error::Other(e.to_string()))
+    })
+    .await
+}
+
+#[tauri::command]
+pub fn capture_status(link: State<Arc<CaptureLink>>) -> CaptureStatus {
+    link.status()
+}
+
+/// Rendu complet à la demande : ouvre le set dans Live au besoin, puis le
+/// device le joue du début à la fin. La fin arrive par l'évènement `render-done`.
+#[tauri::command]
+pub async fn render_preview(app: AppHandle, project_id: i64) -> Result<()> {
+    let (als, _) = paths(&app.state::<AppState>(), project_id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let link = app.state::<Arc<CaptureLink>>();
+        capture::wait_for_set(&link, &als, || {
+            app.opener().open_path(als.clone(), None::<&str>).map_err(|e| e.to_string())
+        })
+        .map_err(Error::Other)?;
+        link.render(project_id);
+        Ok(())
+    })
+    .await
+    .map_err(|e| Error::Other(e.to_string()))?
+}
+
+#[tauri::command]
+pub fn cancel_render(link: State<Arc<CaptureLink>>) {
+    link.cancel_render();
+}
+
+/// Installe le device dans la bibliothèque utilisateur de Live (par défaut
+/// `Documents\Ableton\User Library`). Renvoie le chemin du device.
+#[tauri::command]
+pub fn install_device(app: AppHandle, user_library: Option<String>) -> Result<String> {
+    let library = match user_library {
+        Some(dir) => PathBuf::from(dir),
+        None => {
+            let docs = app.path().document_dir().map_err(|e| Error::Other(e.to_string()))?;
+            let default = docs.join("Ableton").join("User Library");
+            if !default.is_dir() {
+                return Err(Error::Other("NO_USER_LIBRARY".into()));
+            }
+            default
+        }
+    };
+    let device = capture::install_device(&capture::device_dir(&library))
+        .map_err(|e| Error::Other(format!("installation du device : {e}")))?;
+    Ok(device.to_string_lossy().into_owned())
 }

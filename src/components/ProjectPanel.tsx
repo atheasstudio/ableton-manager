@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, formatDate, ProjectDetail, STATUS_LABELS, Status } from "../api";
+import PreviewSection from "./PreviewSection";
 import VersionsTab from "./VersionsTab";
 
 interface Props {
@@ -71,7 +72,9 @@ export default function ProjectPanel({ id, onClose, onChange, onVaultChange }: P
         </button>
       </nav>
 
-      {tab === "versions" && <VersionsTab projectId={id} onVaultChange={onVaultChange} />}
+      {tab === "versions" && (
+        <VersionsTab projectId={id} timeSig={project.time_sig} onVaultChange={onVaultChange} />
+      )}
 
       {tab === "infos" && (
         <>
@@ -81,6 +84,14 @@ export default function ProjectPanel({ id, onClose, onChange, onVaultChange }: P
             </button>
             <button onClick={() => api.openFolder(id)}>Ouvrir le dossier</button>
           </div>
+
+          <PreviewSection
+            project={project}
+            onChange={() => {
+              load();
+              onChange();
+            }}
+          />
 
           <dl className="facts">
             <dt>Tempo</dt>

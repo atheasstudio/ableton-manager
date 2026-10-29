@@ -10,7 +10,11 @@ use std::time::{Duration, Instant};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::{versions, AppState};
+use crate::{previews, versions, AppState};
+
+fn now() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64)
+}
 
 /// Live écrit le set en plusieurs fois : on attend ce délai sans activité.
 const QUIET: Duration = Duration::from_secs(2);
@@ -118,7 +122,10 @@ fn check(app: &AppHandle, dir: Option<&Path>) {
                 continue;
             }
             match versions::snapshot(&conn, &vault, branch_id, "save") {
-                Ok(Some(_)) => {
+                Ok(Some(id)) => {
+                    if let Err(e) = previews::on_new_version(&conn, &vault, id, now()) {
+                        eprintln!("aperçu de la version : {e}");
+                    }
                     let project_id = versions::branch(&conn, branch_id).map_err(|e| e.to_string())?.project_id;
                     let _ = app.emit("versions-changed", VersionsChanged { project_id });
                 }
