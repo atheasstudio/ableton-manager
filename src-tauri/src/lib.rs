@@ -133,6 +133,8 @@ pub fn run() {
             commands::worktime_overview,
             commands::worktime_enabled,
             commands::set_worktime_enabled,
+            commands::list_collections,
+            commands::save_collections,
         ])
         .run(tauri::generate_context!())
         .expect("erreur au lancement de l'application");

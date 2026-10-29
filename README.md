@@ -61,6 +61,12 @@ Le device n'enregistre que si l'appli tourne : il parle à l'appli en OSC sur `1
 - Réglages → « Temps passé » : case « Suivre le temps passé » (réglage `worktime_enabled`) et total de la semaine avec les projets les plus travaillés.
 - Les projets qui ont du temps noté ne sont pas retirés de la bibliothèque si leur disque est débranché.
 
+## Collections
+
+- Le filtre de l'explorateur accepte aussi `worked_since`, `not_worked_since`, `modified_since` (durées en secondes comptées depuis maintenant ; « pas travaillé depuis » inclut les projets jamais travaillés) et `plugin` (nom exact).
+- Une collection est un filtre enregistré sous un nom : `{ id, name, filter }`. Elles sont stockées en JSON dans la table `settings` (clé `collections`), via les commandes `list_collections` et `save_collections`.
+- Tant que rien n'est enregistré, trois collections sont proposées : « Touchés cette semaine », « Oubliés depuis 3 mois », « En cours ».
+
 ## Développer
 
 Prérequis : [Rust](https://rustup.rs), Node 22 et les [prérequis Tauri](https://tauri.app/start/prerequisites/) (WebView2 est déjà présent sur Windows 10/11).
