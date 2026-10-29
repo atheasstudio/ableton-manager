@@ -28,6 +28,10 @@ export interface ProjectSummary {
   preview_hash: string | null;
   hidden: boolean;
   als_path?: string;
+  /** Temps passé dans Live sur ce projet, en secondes. */
+  time_spent: number;
+  /** Fin de la dernière session de travail. */
+  last_worked_at: number | null;
 }
 
 export interface Item {
@@ -224,6 +228,34 @@ export interface TreeNote {
   created_at: number;
 }
 
+export interface WorkSession {
+  id: number;
+  started_at: number;
+  ended_at: number;
+  /** Nom de la branche, si ce n'est pas la principale. */
+  branch: string | null;
+}
+
+export interface ProjectTime {
+  /** Secondes. */
+  total: number;
+  week: number;
+  month: number;
+  sessions: number;
+  first: number | null;
+  last: number | null;
+  /** [« AAAA-MM-JJ », secondes], sur les 12 dernières semaines. */
+  days: [string, number][];
+  /** Les plus récentes d'abord. */
+  recent: WorkSession[];
+}
+
+export interface WorktimeOverview {
+  /** Secondes sur les 7 derniers jours. */
+  week: number;
+  top: { id: number; name: string; seconds: number }[];
+}
+
 export const api = {
   listRoots: () => invoke<Root[]>("list_roots"),
   addRoot: (path: string) => invoke<number>("add_root", { path }),
@@ -304,6 +336,12 @@ export const api = {
       text: n.text,
     }),
   deleteTreeNote: (id: number) => invoke<void>("delete_tree_note", { id }),
+
+  projectTime: (projectId: number) => invoke<ProjectTime>("project_time", { projectId }),
+  deleteWorkSession: (id: number) => invoke<void>("delete_work_session", { id }),
+  worktimeOverview: () => invoke<WorktimeOverview>("worktime_overview"),
+  worktimeEnabled: () => invoke<boolean>("worktime_enabled"),
+  setWorktimeEnabled: (enabled: boolean) => invoke<void>("set_worktime_enabled", { enabled }),
 };
 
 /** Erreur d'installation : la bibliothèque utilisateur de Live n'est pas à sa place habituelle. */
@@ -350,4 +388,24 @@ export function barAt(seconds: number, tempo: number, timeSig: string | null): n
   // Live compte en noires : une mesure de 6/8 fait 3 beats.
   const beatsPerBar = num && den ? (num * 4) / den : 4;
   return Math.floor((seconds * tempo) / 60 / beatsPerBar) + 1;
+}
+
+/** Durée lisible : « 45 min », « 3 h 05 », « 0 min ». */
+export function formatDuration(seconds: number): string {
+  const m = Math.round(seconds / 60);
+  if (m < 60) return `${m} min`;
+  return `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")}`;
+}
+
+/** « aujourd'hui », « hier », « il y a 5 jours », puis la date. */
+export function formatAgo(seconds: number, now = Date.now() / 1000): string {
+  const day = (t: number) => {
+    const d = new Date(t * 1000);
+    return Math.floor(new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() / 86_400_000);
+  };
+  const days = day(now) - day(seconds);
+  if (days <= 0) return "aujourd'hui";
+  if (days === 1) return "hier";
+  if (days < 30) return `il y a ${days} jours`;
+  return `le ${formatDate(seconds)}`;
 }

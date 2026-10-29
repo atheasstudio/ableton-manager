@@ -13,6 +13,7 @@ mod scanner;
 mod vault;
 mod versions;
 mod watcher;
+mod worktime;
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -68,6 +69,7 @@ pub fn run() {
                 dir.join("captures"),
             ));
             app.manage(live::Live::new());
+            worktime::start(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -126,6 +128,11 @@ pub fn run() {
             commands::delete_branch,
             commands::live_add_capture,
             commands::open_project_id,
+            commands::project_time,
+            commands::delete_work_session,
+            commands::worktime_overview,
+            commands::worktime_enabled,
+            commands::set_worktime_enabled,
         ])
         .run(tauri::generate_context!())
         .expect("erreur au lancement de l'application");

@@ -209,6 +209,19 @@ CREATE INDEX tree_notes_project ON tree_notes(project_id);
 -- Dossiers ou .als masqués dans l'explorateur (preset packs…).
 CREATE TABLE hidden (path TEXT PRIMARY KEY);
 "#,
+    r#"
+-- Sessions de travail : le set du projet était ouvert dans Live et quelqu'un
+-- était là. Prolongées toutes les 20 secondes (voir worktime.rs).
+CREATE TABLE work_sessions (
+    id         INTEGER PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    branch_id  INTEGER REFERENCES branches(id) ON DELETE SET NULL,
+    started_at INTEGER NOT NULL,
+    ended_at   INTEGER NOT NULL
+);
+
+CREATE INDEX work_sessions_project ON work_sessions(project_id, ended_at);
+"#,
 ];
 
 pub fn open(path: &Path) -> Result<Connection> {
@@ -392,11 +405,13 @@ pub fn upsert_project(conn: &mut Connection, p: &ScannedProject, now: i64) -> Re
 
 /// Retire les projets d'une racine dont le .als n'a pas été revu au dernier
 /// scan. Les projets versionnés sont gardés (leur historique est dans le
-/// coffre), comme ceux qui ont des annotations (un disque peut être débranché).
+/// coffre), comme ceux qui ont des annotations ou du temps de travail noté
+/// (un disque peut être débranché).
 pub fn remove_missing(conn: &Connection, root_id: i64, scanned_before: i64) -> Result<usize> {
     const MISSING: &str = "SELECT id FROM projects WHERE root_id = ?1 AND scanned_at < ?2
                                AND id NOT IN (SELECT project_id FROM branches)
-                               AND id NOT IN (SELECT project_id FROM annotations)";
+                               AND id NOT IN (SELECT project_id FROM annotations)
+                               AND id NOT IN (SELECT project_id FROM work_sessions)";
     conn.execute(
         &format!("DELETE FROM search WHERE rowid IN ({MISSING})"),
         params![root_id, scanned_before],
@@ -466,7 +481,15 @@ pub struct ProjectSummary {
     pub hidden: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub als_path: Option<String>,
+    /// Temps passé dans Live sur ce projet, en secondes.
+    pub time_spent: i64,
+    /// Fin de la dernière session de travail.
+    pub last_worked_at: Option<i64>,
 }
+
+/// Colonnes `time_spent, last_worked_at` du projet `p`.
+const WORKTIME_SQL: &str = "(SELECT COALESCE(SUM(ended_at - started_at), 0) FROM work_sessions WHERE project_id = p.id),
+    (SELECT MAX(ended_at) FROM work_sessions WHERE project_id = p.id)";
 
 #[derive(Debug, Default, serde::Deserialize)]
 pub struct Filter {
@@ -491,7 +514,7 @@ pub fn search_projects(conn: &Connection, f: &Filter) -> Result<Vec<ProjectSumma
         "SELECT p.id, p.name, p.folder, p.tempo, p.live_version, p.modified_at, p.status, p.favorite,
              (SELECT group_concat(t.name, char(31)) FROM project_tags pt JOIN tags t ON t.id = pt.tag_id
                  WHERE pt.project_id = p.id),
-             p.preview_hash, {HIDDEN_SQL}, p.als_path
+             p.preview_hash, {HIDDEN_SQL}, p.als_path, {WORKTIME_SQL}
          FROM projects p
          WHERE (?5 = 1 OR NOT {HIDDEN_SQL})
            AND (?1 IS NULL OR p.id IN (SELECT rowid FROM search WHERE search MATCH ?1))
@@ -518,6 +541,8 @@ pub fn search_projects(conn: &Connection, f: &Filter) -> Result<Vec<ProjectSumma
                 preview_hash: r.get(9)?,
                 hidden: r.get(10)?,
                 als_path: r.get(11)?,
+                time_spent: r.get(12)?,
+                last_worked_at: r.get(13)?,
             })
         },
     )?;
@@ -569,12 +594,12 @@ pub struct ProjectDetail {
 pub fn get_project(conn: &Connection, id: i64) -> Result<Option<ProjectDetail>> {
     let row = conn
         .query_row(
-            "SELECT p.id, p.name, p.folder, p.tempo, p.live_version, p.modified_at, p.status,
+            &format!("SELECT p.id, p.name, p.folder, p.tempo, p.live_version, p.modified_at, p.status,
                  p.favorite, p.als_path, p.time_sig, p.note,
                  (SELECT group_concat(t.name, char(31)) FROM project_tags pt
                      JOIN tags t ON t.id = pt.tag_id WHERE pt.project_id = p.id),
-                 p.preview_hash
-             FROM projects p WHERE p.id = ?1",
+                 p.preview_hash, {WORKTIME_SQL}
+             FROM projects p WHERE p.id = ?1"),
             [id],
             |r| {
                 Ok((
@@ -591,6 +616,8 @@ pub fn get_project(conn: &Connection, id: i64) -> Result<Option<ProjectDetail>> 
                         preview_hash: r.get(12)?,
                         hidden: false,
                         als_path: None,
+                        time_spent: r.get(13)?,
+                        last_worked_at: r.get(14)?,
                     },
                     r.get::<_, String>(8)?,
                     r.get::<_, Option<String>>(9)?,
