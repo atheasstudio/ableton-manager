@@ -854,8 +854,11 @@ pub fn project_time(state: State<AppState>, project_id: i64) -> Result<worktime:
 }
 
 #[tauri::command]
-pub fn delete_work_session(state: State<AppState>, id: i64) -> Result<()> {
-    Ok(worktime::delete_session(&state.db.lock().unwrap(), id)?)
+pub fn delete_work_session(app: AppHandle, state: State<AppState>, id: i64) -> Result<()> {
+    if let Some(project_id) = worktime::delete_session(&state.db.lock().unwrap(), id)? {
+        worktime::notify(&app, project_id);
+    }
+    Ok(())
 }
 
 #[tauri::command]

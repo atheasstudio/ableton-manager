@@ -1,6 +1,15 @@
 import { useEffect, useState } from "react";
 import { ask, open } from "@tauri-apps/plugin-dialog";
-import { api, CaptureStatus, formatSize, NO_USER_LIBRARY, Root, VaultInfo } from "../api";
+import {
+  api,
+  CaptureStatus,
+  formatDuration,
+  formatSize,
+  NO_USER_LIBRARY,
+  Root,
+  VaultInfo,
+  WorktimeOverview,
+} from "../api";
 
 /** Dossier proposé au premier lancement. */
 export const DEFAULT_ROOT = "F:\\musique\\Projets";
@@ -22,6 +31,23 @@ export default function SettingsDialog(props: Props) {
   const [movingVault, setMovingVault] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [deviceMessage, setDeviceMessage] = useState<string | null>(null);
+  const [worktimeOn, setWorktimeOn] = useState<boolean | null>(null);
+  const [overview, setOverview] = useState<WorktimeOverview | null>(null);
+
+  useEffect(() => {
+    api.worktimeEnabled().then(setWorktimeOn, () => setWorktimeOn(null));
+    api.worktimeOverview().then(setOverview, () => setOverview(null));
+  }, []);
+
+  async function toggleWorktime(on: boolean) {
+    setWorktimeOn(on);
+    try {
+      await api.setWorktimeEnabled(on);
+    } catch (e) {
+      setWorktimeOn(!on);
+      setMessage(`Erreur : ${e}`);
+    }
+  }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && props.onClose();
@@ -160,6 +186,34 @@ export default function SettingsDialog(props: Props) {
             <button onClick={installDevice}>Installer le device…</button>
           </div>
           {deviceMessage && <p className="message">{deviceMessage}</p>}
+        </section>
+
+        <section>
+          <h3>Temps passé</h3>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={worktimeOn ?? true}
+              disabled={worktimeOn === null}
+              onChange={(e) => toggleWorktime(e.target.checked)}
+            />{" "}
+            Suivre le temps passé
+          </label>
+          <p className="message">
+            Le temps compte quand le set est ouvert dans Live et que tu es là (clavier, souris ou
+            lecture en cours).
+          </p>
+          {overview && (
+            <p className="message">
+              Cette semaine : {formatDuration(overview.week)}
+              {overview.top.length > 0 &&
+                " · " +
+                  overview.top
+                    .slice(0, 3)
+                    .map((p) => `${p.name} (${formatDuration(p.seconds)})`)
+                    .join(", ")}
+            </p>
+          )}
         </section>
       </div>
     </div>

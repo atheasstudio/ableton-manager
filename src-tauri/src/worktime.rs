@@ -28,39 +28,82 @@ fn now() -> i64 {
         .map_or(0, |d| d.as_secs() as i64)
 }
 
+/// Évènement Tauri émis quand le temps d'un projet change pour de bon : une
+/// session commence, se termine (set fermé, autre set ouvert, personne là) ou
+/// est supprimée. Pas à chaque relevé, pour ne pas recharger l'interface
+/// toutes les 20 secondes.
+pub const EVENT: &str = "worktime-changed";
+
 #[derive(Clone, Serialize)]
 struct WorktimeChanged {
     project_id: i64,
-    /// Une session vient de commencer (la liste des projets peut changer d'ordre).
-    new_session: bool,
+}
+
+pub fn notify(app: &AppHandle, project_id: i64) {
+    let _ = app.emit(EVENT, WorktimeChanged { project_id });
 }
 
 /// Lance le suivi.
 pub fn start(app: AppHandle) {
-    std::thread::spawn(move || loop {
-        std::thread::sleep(TICK);
-        if let Err(e) = tick(&app) {
-            eprintln!("suivi du temps : {e}");
+    std::thread::spawn(move || {
+        let mut tracker = Tracker::default();
+        loop {
+            std::thread::sleep(TICK);
+            match tick(&app) {
+                Ok(working) => {
+                    for id in tracker.step(working) {
+                        notify(&app, id);
+                    }
+                }
+                Err(e) => eprintln!("suivi du temps : {e}"),
+            }
         }
     });
 }
 
-fn tick(app: &AppHandle) -> Result<(), String> {
-    let Some(open) = live_window::current_set() else { return Ok(()) };
+/// Projet en cours de travail d'un relevé à l'autre : sert à repérer la fin
+/// d'une session (le relevé suivant ne la prolonge pas).
+#[derive(Default)]
+struct Tracker {
+    active: Option<i64>,
+}
+
+impl Tracker {
+    /// `working` : projet noté à ce relevé et vrai si sa session vient de
+    /// commencer. Renvoie les projets dont le temps a changé.
+    fn step(&mut self, working: Option<(i64, bool)>) -> Vec<i64> {
+        let mut changed = Vec::new();
+        let current = working.map(|(id, _)| id);
+        if let Some(prev) = self.active.filter(|&p| Some(p) != current) {
+            changed.push(prev); // fin de session
+        }
+        if let Some((id, new_session)) = working {
+            if new_session || self.active != Some(id) {
+                changed.push(id); // début de session
+            }
+        }
+        self.active = current;
+        changed
+    }
+}
+
+/// Un relevé : renvoie le projet noté (et s'il ouvre une session), ou rien
+/// si personne ne travaille sur un projet connu.
+fn tick(app: &AppHandle) -> Result<Option<(i64, bool)>, String> {
+    let Some(open) = live_window::current_set() else { return Ok(None) };
     let state = app.state::<AppState>();
     let conn = state.open_db().map_err(|e| e.to_string())?;
     if !enabled(&conn).map_err(|e| e.to_string())? {
-        return Ok(());
+        return Ok(None);
     }
     if idle_seconds() >= IDLE && !live_playing(app) {
-        return Ok(());
+        return Ok(None);
     }
     let Some(set) = previews::resolve(&conn, &open).map_err(|e| e.to_string())? else {
-        return Ok(());
+        return Ok(None);
     };
     let new_session = record(&conn, set.project_id, set.branch_id, now()).map_err(|e| e.to_string())?;
-    let _ = app.emit("worktime-changed", WorktimeChanged { project_id: set.project_id, new_session });
-    Ok(())
+    Ok(Some((set.project_id, new_session)))
 }
 
 fn live_playing(app: &AppHandle) -> bool {
@@ -180,9 +223,10 @@ pub fn project_time(conn: &Connection, project_id: i64, now: i64) -> db::Result<
     })
 }
 
-pub fn delete_session(conn: &Connection, id: i64) -> db::Result<()> {
-    conn.execute("DELETE FROM work_sessions WHERE id = ?1", [id])?;
-    Ok(())
+/// Supprime une session ; renvoie le projet concerné (rien si elle n'existait pas).
+pub fn delete_session(conn: &Connection, id: i64) -> db::Result<Option<i64>> {
+    conn.query_row("DELETE FROM work_sessions WHERE id = ?1 RETURNING project_id", [id], |r| r.get(0))
+        .optional()
 }
 
 #[derive(Debug, Serialize)]
@@ -304,8 +348,20 @@ mod tests {
         assert_eq!(o.top[0].id, a);
         assert_eq!(o.top[1].seconds, 30);
 
-        delete_session(&conn, ta.recent[0].id).unwrap();
+        assert_eq!(delete_session(&conn, ta.recent[0].id).unwrap(), Some(a));
+        assert_eq!(delete_session(&conn, ta.recent[0].id).unwrap(), None);
         assert_eq!(project_time(&conn, a, now).unwrap().total, 0);
+    }
+
+    #[test]
+    fn tracker_signals_start_and_end() {
+        let mut t = Tracker::default();
+        assert_eq!(t.step(None), Vec::<i64>::new());
+        assert_eq!(t.step(Some((1, true))), vec![1], "début");
+        assert_eq!(t.step(Some((1, false))), Vec::<i64>::new(), "simple prolongation");
+        assert_eq!(t.step(Some((2, true))), vec![1, 2], "fin de 1, début de 2");
+        assert_eq!(t.step(None), vec![2], "fin de 2");
+        assert_eq!(t.step(None), Vec::<i64>::new());
     }
 
     #[test]
