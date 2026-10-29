@@ -1,10 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { ask } from "@tauri-apps/plugin-dialog";
-import { api, formatDate, ProjectDetail, STATUS_LABELS, Status } from "../api";
+import { api, formatAgo, formatDate, formatDuration, ProjectDetail, STATUS_LABELS, Status } from "../api";
 import { baseName } from "./Explorer";
 import PreviewSection from "./PreviewSection";
+import { toast } from "./Toasts";
 import TimelineTab from "./TimelineTab";
 import VersionsTab from "./VersionsTab";
+import WorktimeTab, { worktimeProject } from "./WorktimeTab";
 
 interface Props {
   id: number;
@@ -14,7 +17,7 @@ interface Props {
   onVaultChange: () => void;
 }
 
-type DockTab = "timeline" | "preview" | "infos";
+type DockTab = "timeline" | "preview" | "time" | "infos";
 
 const KIND_LABELS = { audio: "Audio", midi: "MIDI", group: "Groupe", return: "Retour" };
 const DOCK_KEY = "workspace.dock";
@@ -37,7 +40,9 @@ export default function Workspace({ id, onChange, onVaultChange }: Props) {
   const [dock, setDockState] = useState<DockTab | null>(savedDock);
   const [note, setNote] = useState("");
   const [newTag, setNewTag] = useState("");
-  const [message, setMessage] = useState<string | null>(null);
+  /** Projet affiché, pour les « Annuler » qui arrivent après un changement de projet. */
+  const shown = useRef(id);
+  shown.current = id;
 
   function setDock(tab: DockTab | null) {
     setDockState(tab);
@@ -55,8 +60,14 @@ export default function Workspace({ id, onChange, onVaultChange }: Props) {
   }
 
   useEffect(() => {
-    setMessage(null);
     load();
+    // Une session qui se termine change le temps affiché dans l'en-tête.
+    const unlisten = listen("worktime-changed", (e) => {
+      if (worktimeProject(e.payload) === id) load();
+    });
+    return () => {
+      unlisten.then((f) => f());
+    };
   }, [id]);
 
   if (project === null) {
@@ -68,10 +79,41 @@ export default function Workspace({ id, onChange, onVaultChange }: Props) {
   }
   if (!project || project.id !== id) return <main className="workspace" />;
 
-  async function update(action: Promise<void>) {
-    await action;
-    await load();
+  /** Recharge la fiche si c'est encore ce projet qui est affiché. */
+  async function reload(pid: number) {
+    if (shown.current === pid) {
+      const p = await api.getProject(pid);
+      if (shown.current === pid) {
+        setProject(p);
+        setNote(p?.note ?? "");
+      }
+    }
     onChange();
+  }
+
+  /**
+   * Applique un changement tout de suite. Avec `undo`, une notification
+   * propose de revenir en arrière.
+   */
+  async function update(action: Promise<void>, done?: { message: string; undo: () => Promise<void> }) {
+    const pid = id;
+    try {
+      await action;
+    } catch (e) {
+      toast(`Erreur : ${e}`);
+      await reload(pid);
+      return;
+    }
+    await reload(pid);
+    if (done) {
+      toast({
+        message: done.message,
+        undo: async () => {
+          await done.undo();
+          await reload(pid);
+        },
+      });
+    }
   }
 
   function addTag(e: React.FormEvent) {
@@ -96,11 +138,11 @@ export default function Workspace({ id, onChange, onVaultChange }: Props) {
     if (!ok) return;
     try {
       const r = await api.moveToOwnFolder(id);
-      setMessage(`Rangé dans ${r.folder} (${r.copied} audio(s) copié(s)).`);
+      toast(`Rangé dans ${r.folder} (${r.copied} audio(s) copié(s)).`);
       await load();
       onChange();
     } catch (e) {
-      setMessage(`Erreur : ${e}`);
+      toast(`Erreur : ${e}`);
     }
   }
 
@@ -112,7 +154,13 @@ export default function Workspace({ id, onChange, onVaultChange }: Props) {
       <header className="ws-head">
         <button
           className="icon star"
-          onClick={() => update(api.setFavorite(id, !project.favorite))}
+          onClick={() => {
+            const fav = !project.favorite;
+            update(api.setFavorite(id, fav), {
+              message: fav ? `« ${project.name} » ajouté aux favoris` : `« ${project.name} » retiré des favoris`,
+              undo: () => api.setFavorite(id, !fav),
+            });
+          }}
           aria-label="Favori"
         >
           {project.favorite ? "★" : "☆"}
@@ -129,12 +177,33 @@ export default function Workspace({ id, onChange, onVaultChange }: Props) {
             ]
               .filter(Boolean)
               .join(" · ")}
+            {project.time_spent > 0 && (
+              <>
+                {" · "}
+                <button
+                  className="link ws-worktime"
+                  onClick={() => setDock("time")}
+                  title="Temps passé dans Live sur ce projet"
+                >
+                  ⏱ {formatDuration(project.time_spent)}
+                  {project.last_worked_at !== null &&
+                    ` · dernière session ${formatAgo(project.last_worked_at)}`}
+                </button>
+              </>
+            )}
           </small>
         </div>
         <select
           className={`status ${project.status}`}
           value={project.status}
-          onChange={(e) => update(api.setStatus(id, e.target.value as Status))}
+          onChange={(e) => {
+            const before = project.status;
+            const after = e.target.value as Status;
+            update(api.setStatus(id, after), {
+              message: `Statut : ${STATUS_LABELS[after]}`,
+              undo: () => api.setStatus(id, before),
+            });
+          }}
           title="Statut"
         >
           {Object.entries(STATUS_LABELS).map(([k, label]) => (
@@ -158,7 +227,6 @@ export default function Workspace({ id, onChange, onVaultChange }: Props) {
           )}
         </div>
       </header>
-      {message && <p className="message ws-message">{message}</p>}
 
       <section className="ws-tree">
         <VersionsTab
@@ -175,6 +243,7 @@ export default function Workspace({ id, onChange, onVaultChange }: Props) {
             [
               ["timeline", "Timeline"],
               ["preview", "Aperçu"],
+              ["time", "Temps"],
               ["infos", "Infos"],
             ] as const
           ).map(([k, label]) => (
@@ -204,6 +273,15 @@ export default function Workspace({ id, onChange, onVaultChange }: Props) {
                 }}
               />
             )}
+            {dock === "time" && (
+              <WorktimeTab
+                projectId={id}
+                onChange={() => {
+                  load();
+                  onChange();
+                }}
+              />
+            )}
             {dock === "infos" && (
               <div className="infos">
                 <div className="infos-col">
@@ -221,7 +299,16 @@ export default function Workspace({ id, onChange, onVaultChange }: Props) {
                     {project.tags.map((t) => (
                       <span key={t} className="tag">
                         {t}
-                        <button className="icon" onClick={() => update(api.removeTag(id, t))}>
+                        <button
+                          className="icon"
+                          aria-label={`Retirer le tag ${t}`}
+                          onClick={() =>
+                            update(api.removeTag(id, t), {
+                              message: `Tag « ${t} » retiré`,
+                              undo: () => api.addTag(id, t),
+                            })
+                          }
+                        >
                           ×
                         </button>
                       </span>

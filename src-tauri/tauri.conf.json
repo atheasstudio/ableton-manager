@@ -11,7 +11,15 @@
   },
   "app": {
     "windows": [
-      { "title": "Ableton Manager", "width": 1200, "height": 800, "minWidth": 800, "minHeight": 500 }
+      {
+        "label": "main",
+        "title": "Ableton Manager",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 500,
+        "dragDropEnabled": true
+      }
     ],
     "security": { "csp": null }
   },
