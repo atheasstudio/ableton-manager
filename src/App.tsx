@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { open } from "@tauri-apps/plugin-dialog";
+import { ask, open } from "@tauri-apps/plugin-dialog";
 import {
   api,
   Filter,
+  formatSize,
   ProjectSummary,
   Root,
   ScanProgress,
   STATUS_LABELS,
   Status,
+  VaultInfo,
 } from "./api";
 import ProjectList from "./components/ProjectList";
 import ProjectPanel from "./components/ProjectPanel";
@@ -25,6 +27,12 @@ export default function App() {
   const [progress, setProgress] = useState<ScanProgress | null>(null);
   const [scanning, setScanning] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [vault, setVault] = useState<VaultInfo | null>(null);
+  const [movingVault, setMovingVault] = useState(false);
+
+  const refreshVault = useCallback(() => {
+    api.vaultInfo().then(setVault, () => setVault(null));
+  }, []);
 
   const refresh = useCallback(async () => {
     setProjects(await api.searchProjects(filter));
@@ -33,6 +41,7 @@ export default function App() {
 
   useEffect(() => {
     api.listRoots().then(setRoots);
+    refreshVault();
     const unlisten = listen<ScanProgress>("scan-progress", (e) => setProgress(e.payload));
     return () => {
       unlisten.then((f) => f());
@@ -72,6 +81,26 @@ export default function App() {
   async function addDefaultRoot() {
     await api.addRoot(DEFAULT_ROOT);
     setRoots(await api.listRoots());
+  }
+
+  async function moveVault() {
+    const dir = await open({ directory: true, title: "Dossier du coffre (idéalement un disque dédié)" });
+    if (typeof dir !== "string") return;
+    const ok = await ask(`Déplacer le coffre vers ${dir} ? Les fichiers déjà rangés y sont déplacés.`, {
+      title: "Déplacer le coffre",
+      okLabel: "Déplacer",
+      cancelLabel: "Annuler",
+    });
+    if (!ok) return;
+    setMovingVault(true);
+    try {
+      await api.setVaultDir(dir);
+    } catch (e) {
+      setMessage(`Erreur : ${e}`);
+    } finally {
+      setMovingVault(false);
+      refreshVault();
+    }
   }
 
   async function removeRoot(id: number) {
@@ -139,6 +168,23 @@ export default function App() {
           </label>
         </section>
 
+        <section>
+          <h2>Coffre des versions</h2>
+          {vault && (
+            <>
+              <p className="path" title={vault.path}>
+                {vault.path}
+              </p>
+              <small className="message">
+                {vault.files} fichiers · {formatSize(vault.bytes)}
+              </small>
+            </>
+          )}
+          <button onClick={moveVault} disabled={movingVault}>
+            {movingVault ? "Déplacement…" : "Changer de dossier…"}
+          </button>
+        </section>
+
         {tags.length > 0 && (
           <section>
             <h2>Tags</h2>
@@ -170,7 +216,12 @@ export default function App() {
       </main>
 
       {selected !== null && (
-        <ProjectPanel id={selected} onClose={() => setSelected(null)} onChange={refresh} />
+        <ProjectPanel
+          id={selected}
+          onClose={() => setSelected(null)}
+          onChange={refresh}
+          onVaultChange={refreshVault}
+        />
       )}
     </div>
   );

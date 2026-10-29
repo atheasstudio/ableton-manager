@@ -68,6 +68,72 @@ CREATE VIRTUAL TABLE search USING fts5(
     name, note, plugins, samples, tags,
     tokenize = 'unicode61 remove_diacritics 2'
 );
+"#, r#"
+CREATE TABLE settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
+-- Empreintes déjà calculées, pour ne pas relire un gros audio inchangé.
+CREATE TABLE file_hashes (
+    path  TEXT PRIMARY KEY,
+    size  INTEGER NOT NULL,
+    mtime INTEGER NOT NULL,
+    hash  TEXT NOT NULL
+);
+
+-- Une branche = un dossier de travail dont les sauvegardes sont suivies.
+-- La branche principale est le projet lui-même.
+CREATE TABLE branches (
+    id         INTEGER PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    name       TEXT NOT NULL,
+    folder     TEXT NOT NULL,
+    als_path   TEXT NOT NULL UNIQUE,
+    -- version d'où part la branche, et dernière version
+    base_id    INTEGER REFERENCES versions(id) ON DELETE SET NULL,
+    head_id    INTEGER REFERENCES versions(id) ON DELETE SET NULL,
+    is_main    INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    UNIQUE (project_id, name)
+);
+
+CREATE TABLE versions (
+    id           INTEGER PRIMARY KEY,
+    project_id   INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    branch_id    INTEGER NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+    parent_id    INTEGER REFERENCES versions(id) ON DELETE SET NULL,
+    -- date de la sauvegarde dans Live
+    created_at   INTEGER NOT NULL,
+    -- 'save' (détectée), 'backup' (importée de Backup/), 'manual', 'restore'
+    source       TEXT NOT NULL,
+    name         TEXT,
+    auto_name    TEXT NOT NULL,
+    als_name     TEXT NOT NULL,
+    als_hash     TEXT NOT NULL,
+    tempo        REAL,
+    time_sig     TEXT,
+    live_version TEXT,
+    -- JSON : pistes, plugins, locators
+    summary      TEXT NOT NULL,
+    -- aperçu audio (pré-écoute, phase 3)
+    preview_hash TEXT
+);
+
+-- Fichiers audio d'une version ; hash NULL = introuvable au moment de la sauvegarde.
+CREATE TABLE version_files (
+    version_id INTEGER NOT NULL REFERENCES versions(id) ON DELETE CASCADE,
+    name       TEXT NOT NULL,
+    -- chemin absolu noté dans le .als
+    path       TEXT,
+    -- chemin relatif au dossier du projet, si Live le retrouve ainsi
+    rel_path   TEXT,
+    hash       TEXT,
+    size       INTEGER
+);
+
+CREATE INDEX versions_project ON versions(project_id);
+CREATE INDEX version_files_version ON version_files(version_id);
 "#];
 
 pub fn open(path: &Path) -> Result<Connection> {
@@ -84,6 +150,8 @@ pub fn open_in_memory() -> Result<Connection> {
 }
 
 fn init(conn: &Connection) -> Result<()> {
+    // Le coffre écrit depuis d'autres connexions : on attend plutôt qu'échouer.
+    conn.busy_timeout(std::time::Duration::from_secs(10))?;
     conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;")?;
     let version: usize = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
     for (i, sql) in MIGRATIONS.iter().enumerate().skip(version) {
@@ -200,17 +268,39 @@ pub fn upsert_project(conn: &mut Connection, p: &ScannedProject, now: i64) -> Re
     Ok(id)
 }
 
-/// Retire les projets d'une racine dont le .als n'a pas été revu au dernier scan.
+/// Retire les projets d'une racine dont le .als n'a pas été revu au dernier
+/// scan. Les projets versionnés sont gardés : leur historique est dans le coffre.
 pub fn remove_missing(conn: &Connection, root_id: i64, scanned_before: i64) -> Result<usize> {
+    const MISSING: &str = "SELECT id FROM projects WHERE root_id = ?1 AND scanned_at < ?2
+                               AND id NOT IN (SELECT project_id FROM branches)";
     conn.execute(
-        "DELETE FROM search WHERE rowid IN
-             (SELECT id FROM projects WHERE root_id = ?1 AND scanned_at < ?2)",
+        &format!("DELETE FROM search WHERE rowid IN ({MISSING})"),
         params![root_id, scanned_before],
     )?;
-    conn.execute(
-        "DELETE FROM projects WHERE root_id = ?1 AND scanned_at < ?2",
-        params![root_id, scanned_before],
+    conn.execute(&format!("DELETE FROM projects WHERE id IN ({MISSING})"), params![root_id, scanned_before])
+}
+
+/// Vrai si `folder` est le dossier de travail d'une branche (et pas le
+/// projet d'origine) : le scan ne doit pas en faire un projet à part.
+pub fn is_branch_folder(conn: &Connection, folder: &str) -> Result<bool> {
+    conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM branches WHERE folder = ?1 AND is_main = 0)",
+        [folder],
+        |r| r.get(0),
     )
+}
+
+pub fn get_setting(conn: &Connection, key: &str) -> Result<Option<String>> {
+    conn.query_row("SELECT value FROM settings WHERE key = ?1", [key], |r| r.get(0)).optional()
+}
+
+pub fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<()> {
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![key, value],
+    )?;
+    Ok(())
 }
 
 fn refresh_search(conn: &Connection, id: i64) -> Result<()> {
