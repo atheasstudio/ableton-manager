@@ -827,3 +827,21 @@ pub async fn live_add_capture(app: AppHandle) -> Result<()> {
     })
     .await
 }
+
+/// Projet dont le set est ouvert dans Live (d'après le titre de sa fenêtre),
+/// branches comprises. Le plus récemment modifié gagne en cas d'ambiguïté.
+#[tauri::command]
+pub fn open_project_id(state: State<AppState>) -> Result<Option<i64>> {
+    let Some(open) = live_window::current_set() else { return Ok(None) };
+    let conn = state.db.lock().unwrap();
+    let mut stmt = conn.prepare(
+        "SELECT p.id, s.als_path FROM projects p
+         JOIN (SELECT id AS pid, als_path FROM projects
+               UNION ALL SELECT project_id, als_path FROM branches) s ON s.pid = p.id
+         ORDER BY p.modified_at DESC",
+    )?;
+    let rows = stmt
+        .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows.into_iter().find(|(_, als)| live::is_open(&open, &[PathBuf::from(als)])).map(|(id, _)| id))
+}
