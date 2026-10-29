@@ -16,7 +16,7 @@ use crate::live_window;
 use crate::previews::{self, PreviewInfo};
 use crate::versions::{self, Branch, Diff, NewBranch, RestoreReport, VersionRow};
 use crate::watcher::SaveWatcher;
-use crate::{notes, scanner, AppState, VAULT_DIR};
+use crate::{notes, organize, scanner, AppState, VAULT_DIR};
 
 /// Erreur renvoyée à l'interface sous forme de texte.
 #[derive(Debug, thiserror::Error)]
@@ -103,14 +103,17 @@ fn scan_blocking(app: &AppHandle) -> Result<ScanReport> {
                 ScanProgress { root: root.path.clone(), done: i, total: projects.len(), current: p.name() },
             );
 
-            let conn = state.db.lock().unwrap();
+            let others: Vec<String> =
+                p.other_sets.iter().map(|o| o.to_string_lossy().into_owned()).collect();
+            let name = p.name();
+            let mut conn = state.db.lock().unwrap();
             // Dossier d'une branche : il appartient au projet d'origine.
             if db::is_branch_folder(&conn, &p.folder.to_string_lossy())? {
                 continue;
             }
             if db::indexed_mtime(&conn, &als)? == Some(p.modified_at) {
                 // Inchangé : on marque juste le projet comme revu.
-                conn.execute("UPDATE projects SET scanned_at = ?2 WHERE als_path = ?1", (&als, started))?;
+                db::mark_seen(&mut conn, &als, &name, &others, started)?;
                 continue;
             }
             drop(conn); // la lecture du .als peut être longue : on libère la base
@@ -122,9 +125,6 @@ fn scan_blocking(app: &AppHandle) -> Result<ScanReport> {
                     continue;
                 }
             };
-            let others: Vec<String> =
-                p.other_sets.iter().map(|o| o.to_string_lossy().into_owned()).collect();
-            let name = p.name();
             let folder = p.folder.to_string_lossy();
             let scanned = db::ScannedProject {
                 root_id: Some(root.id),
@@ -321,6 +321,14 @@ pub fn open_branch(app: AppHandle, state: State<AppState>, branch_id: i64) -> Re
 pub fn open_branch_folder(app: AppHandle, state: State<AppState>, branch_id: i64) -> Result<()> {
     let b = versions::branch(&state.db.lock().unwrap(), branch_id)?;
     app.opener().reveal_item_in_dir(b.als_path).map_err(|e| Error::Other(e.to_string()))
+}
+
+/// Donne au set son propre dossier de projet (il partageait le sien).
+#[tauri::command]
+pub fn move_to_own_folder(app: AppHandle, state: State<AppState>, id: i64) -> Result<organize::Moved> {
+    let moved = organize::move_to_own_folder(&state.db.lock().unwrap(), id)?;
+    app.state::<Arc<SaveWatcher>>().sync(&app);
+    Ok(moved)
 }
 
 #[derive(Serialize)]

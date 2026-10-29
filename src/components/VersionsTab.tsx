@@ -170,15 +170,19 @@ export default function VersionsTab({ projectId, timeSig, onVaultChange }: Props
     <div className="versions">
       <ul className="branches">
         {view.branches.map((b) => (
-          <li key={b.id}>
+          <li key={b.id} title={b.als_path}>
             <span className="dot" style={{ background: laneColor(view.branches, b.id) }} />
-            <span className="branch-name" title={b.als_path}>
-              {b.name}
-            </span>
-            <button onClick={() => api.openBranch(b.id)} title="Ouvrir ce set dans Ableton">
-              Ouvrir
+            <span className="branch-name">{b.name}</span>
+            <button
+              onClick={() => api.openBranch(b.id)}
+              title="Ouvrir le set de cette branche dans Live"
+            >
+              ▶ Live
             </button>
-            <button onClick={() => api.openBranchFolder(b.id)} title="Ouvrir le dossier">
+            <button
+              onClick={() => api.openBranchFolder(b.id)}
+              title="Ouvrir le dossier de la branche"
+            >
               Dossier
             </button>
             <button
@@ -206,6 +210,7 @@ export default function VersionsTab({ projectId, timeSig, onVaultChange }: Props
         onSelect={setSelected}
         checked={checked}
         onToggleCheck={toggleCheck}
+        onOpenBranch={(id) => api.openBranch(id)}
         onAddNote={async (versionId, x, y) => {
           const note = await api.addTreeNote(projectId, versionId, x, y);
           setNotes((all) => [...all, note]);
@@ -266,6 +271,15 @@ export default function VersionsTab({ projectId, timeSig, onVaultChange }: Props
                   </small>
                 )}
                 <div className="actions">
+                  {branchOf(version.branch_id)?.head_id === version.id && (
+                    <button
+                      className="primary"
+                      onClick={() => api.openBranch(version.branch_id)}
+                      title="C'est l'état actuel de cette branche"
+                    >
+                      Ouvrir dans Live
+                    </button>
+                  )}
                   <button disabled={!!busy} onClick={restore}>
                     Restaurer
                   </button>

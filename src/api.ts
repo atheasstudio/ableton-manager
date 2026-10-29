@@ -249,6 +249,9 @@ export const api = {
   compareVersions: (a: number, b: number) => invoke<Diff>("compare_versions", { a, b }),
   openBranch: (branchId: number) => invoke<void>("open_branch", { branchId }),
   openBranchFolder: (branchId: number) => invoke<void>("open_branch_folder", { branchId }),
+  /** Donne au set son propre dossier « <set> Project » ; renvoie ce dossier. */
+  moveToOwnFolder: (id: number) =>
+    invoke<{ folder: string; copied: number }>("move_to_own_folder", { id }),
   vaultInfo: () => invoke<VaultInfo>("vault_info"),
   setVaultDir: (path: string) => invoke<void>("set_vault_dir", { path }),
 

@@ -274,6 +274,36 @@ pub fn indexed_mtime(conn: &Connection, als_path: &str) -> Result<Option<i64>> {
     .optional()
 }
 
+/// Projet inchangé depuis le dernier scan : on le marque comme revu et on
+/// remet à jour son nom et les autres sets du dossier, qui ont pu changer.
+pub fn mark_seen(conn: &mut Connection, als_path: &str, name: &str, other_sets: &[String], now: i64) -> Result<()> {
+    let tx = conn.transaction()?;
+    let id: Option<i64> = tx
+        .query_row(
+            "UPDATE projects SET scanned_at = ?2, name = ?3 WHERE als_path = ?1 RETURNING id",
+            params![als_path, now, name],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if let Some(id) = id {
+        tx.execute("DELETE FROM project_items WHERE project_id = ?1 AND kind = 'set'", [id])?;
+        insert_sets(&tx, id, other_sets)?;
+        refresh_search(&tx, id)?;
+    }
+    tx.commit()
+}
+
+fn insert_sets(conn: &Connection, id: i64, other_sets: &[String]) -> Result<()> {
+    let mut item = conn.prepare(
+        "INSERT INTO project_items (project_id, kind, name, path) VALUES (?1, 'set', ?2, ?3)",
+    )?;
+    for other in other_sets {
+        let name = other.rsplit(['/', '\\']).next().unwrap_or(other);
+        item.execute(params![id, name, other])?;
+    }
+    Ok(())
+}
+
 /// Insère ou met à jour un projet ; tags, statut, favori et note sont conservés.
 pub fn upsert_project(conn: &mut Connection, p: &ScannedProject, now: i64) -> Result<i64> {
     let tx = conn.transaction()?;
@@ -323,11 +353,8 @@ pub fn upsert_project(conn: &mut Connection, p: &ScannedProject, now: i64) -> Re
             let name = sample.file_name().unwrap_or("?");
             item.execute(params![id, "sample", name, sample.path, sample.relative_path])?;
         }
-        for other in p.other_sets {
-            let name = other.rsplit(['/', '\\']).next().unwrap_or(other);
-            item.execute(params![id, "set", name, other, none])?;
-        }
     }
+    insert_sets(&tx, id, p.other_sets)?;
     refresh_search(&tx, id)?;
     tx.commit()?;
     Ok(id)
