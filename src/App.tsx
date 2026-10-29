@@ -4,7 +4,9 @@ import { api, CaptureStatus, Filter, ProjectSummary, Root, ScanProgress, VaultIn
 import Explorer from "./components/Explorer";
 import PreviewPlayer from "./components/PreviewPlayer";
 import SettingsDialog, { DEFAULT_ROOT } from "./components/SettingsDialog";
+import Toasts, { toast } from "./components/Toasts";
 import Workspace from "./components/Workspace";
+import "./ui.css";
 
 const SELECTED_KEY = "app.selected";
 
@@ -25,7 +27,6 @@ export default function App() {
   const [selected, setSelectedState] = useState<number | null>(savedSelection);
   const [progress, setProgress] = useState<ScanProgress | null>(null);
   const [scanning, setScanning] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
   const [vault, setVault] = useState<VaultInfo | null>(null);
   const [capture, setCapture] = useState<CaptureStatus | null>(null);
   const [playing, setPlaying] = useState<ProjectSummary | null>(null);
@@ -92,17 +93,16 @@ export default function App() {
 
   async function scan() {
     setScanning(true);
-    setMessage(null);
     try {
       const r = await api.scan();
       const parts = [`${r.found} projets trouvés`, `${r.updated} mis à jour`];
       if (r.removed) parts.push(`${r.removed} disparus`);
       if (r.errors.length) parts.push(`${r.errors.length} illisibles`);
-      setMessage(parts.join(" · "));
+      toast(parts.join(" · "));
       if (r.errors.length) console.warn("Fichiers illisibles", r.errors);
       await refresh();
     } catch (e) {
-      setMessage(`Erreur : ${e}`);
+      toast(`Erreur de scan : ${e}`);
     } finally {
       setScanning(false);
       setProgress(null);
@@ -132,8 +132,8 @@ export default function App() {
           <button
             onClick={() =>
               api.liveAddCapture().then(
-                () => setMessage("Device de capture ajouté au Master du set ouvert"),
-                (e) => setMessage(`Capture : ${e}`),
+                () => toast("Device de capture ajouté au Master du set ouvert"),
+                (e) => toast(`Capture impossible : ${e}`),
               )
             }
             title="Ajouter « Ableton Manager Capture » au set ouvert dans Live"
@@ -155,7 +155,6 @@ export default function App() {
             <small>{progress.current}</small>
           </div>
         )}
-        {message && <p className="message">{message}</p>}
 
         <Explorer
           projects={projects}
@@ -167,7 +166,7 @@ export default function App() {
           playing={playing?.id ?? null}
           onPlay={(p) => setPlaying(playing?.id === p.id ? null : p)}
           onChanged={refresh}
-          onMessage={setMessage}
+          onMessage={(m) => toast(m)}
         />
 
         {playing?.preview_hash && (
@@ -223,6 +222,8 @@ export default function App() {
           )}
         </main>
       )}
+
+      <Toasts />
 
       {settings && (
         <SettingsDialog

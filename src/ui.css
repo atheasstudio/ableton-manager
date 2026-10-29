@@ -30,3 +30,15 @@ button.link.ws-worktime:hover { color: var(--accent); }
 .wt-sessions li button { margin-left: auto; visibility: hidden; }
 .wt-sessions li:hover button { visibility: visible; }
 .wt-branch { font-size: 11px; padding: 0 6px; border-radius: 8px; background: var(--surface-2); color: var(--muted); }
+
+/* ---------- Notifications ---------- */
+.toasts { position: fixed; right: 16px; bottom: 16px; z-index: 1000; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; pointer-events: none; }
+.toast { position: relative; overflow: hidden; pointer-events: auto; display: flex; align-items: center; gap: 12px; min-width: 240px; max-width: 440px; padding: 10px 10px 12px 14px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45); font-size: 13px; animation: toast-in 0.15s ease-out; }
+.toast.error { border-color: var(--danger); }
+.toast.pending { border-left: 3px solid var(--danger); }
+.toast-msg { flex: 1; overflow-wrap: anywhere; }
+.toast button.link { font-weight: 600; white-space: nowrap; }
+.toast-bar { position: absolute; left: 0; bottom: 0; height: 2px; width: 100%; background: var(--accent); transform-origin: left; animation-name: toast-bar; animation-timing-function: linear; animation-fill-mode: forwards; opacity: 0.6; }
+.toast.pending .toast-bar { background: var(--danger); }
+@keyframes toast-in { from { transform: translateY(8px); opacity: 0; } }
+@keyframes toast-bar { from { transform: scaleX(1); } to { transform: scaleX(0); } }

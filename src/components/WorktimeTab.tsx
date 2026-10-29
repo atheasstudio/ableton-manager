@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { api, formatAgo, formatDateTime, formatDuration, ProjectTime, WorkSession } from "../api";
+import { toast } from "./Toasts";
 import "../ui.css";
 
 interface Props {
@@ -93,6 +94,8 @@ function DayGrid({ days }: { days: [string, number][] }) {
 export default function WorktimeTab({ projectId, onChange }: Props) {
   const [time, setTime] = useState<ProjectTime | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Sessions dont la suppression attend l'expiration de la notification. */
+  const [hidden, setHidden] = useState<number[]>([]);
 
   function load() {
     api.projectTime(projectId).then(
@@ -115,14 +118,23 @@ export default function WorktimeTab({ projectId, onChange }: Props) {
     };
   }, [projectId]);
 
-  async function remove(s: WorkSession) {
-    try {
-      await api.deleteWorkSession(s.id);
-      load();
-      onChange?.();
-    } catch (e) {
-      setError(String(e));
-    }
+  /** Suppression différée : la session disparaît, « Annuler » la fait revenir. */
+  function remove(s: WorkSession) {
+    setHidden((h) => [...h, s.id]);
+    toast({
+      message: `Session de ${formatDuration(s.ended_at - s.started_at)} supprimée`,
+      undo: () => setHidden((h) => h.filter((x) => x !== s.id)),
+      commit: async () => {
+        try {
+          await api.deleteWorkSession(s.id);
+        } catch (e) {
+          setHidden((h) => h.filter((x) => x !== s.id));
+          throw e;
+        }
+        load();
+        onChange?.();
+      },
+    });
   }
 
   if (error && !time) return <p className="missing">Temps indisponible : {error}</p>;
@@ -169,7 +181,7 @@ export default function WorktimeTab({ projectId, onChange }: Props) {
       <div className="wt-sessions">
         <h4>Sessions récentes</h4>
         <ul>
-          {time.recent.map((s) => (
+          {time.recent.filter((s) => !hidden.includes(s.id)).map((s) => (
             <li key={s.id}>
               <span className="num">{formatDuration(s.ended_at - s.started_at)}</span>
               <span title={formatDateTime(s.started_at)}>

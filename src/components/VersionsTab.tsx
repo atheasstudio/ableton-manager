@@ -14,6 +14,7 @@ import {
 import ContextMenu, { MenuState } from "./ContextMenu";
 import CompareDialog from "./CompareDialog";
 import PreviewPlayer from "./PreviewPlayer";
+import { toast } from "./Toasts";
 import VersionGraph, { laneColor } from "./VersionGraph";
 
 interface Props {
@@ -32,7 +33,6 @@ export default function VersionsTab({ projectId, timeSig, onVaultChange }: Props
   const [comparing, setComparing] = useState(false);
   const [importBackups, setImportBackups] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
   const [rename, setRename] = useState("");
   const [branchName, setBranchName] = useState<string | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
@@ -46,7 +46,6 @@ export default function VersionsTab({ projectId, timeSig, onVaultChange }: Props
   useEffect(() => {
     setSelected(null);
     setChecked([]);
-    setMessage(null);
     load();
     const unlisten = listen<{ project_id: number }>("versions-changed", (e) => {
       if (e.payload.project_id === projectId) {
@@ -65,19 +64,35 @@ export default function VersionsTab({ projectId, timeSig, onVaultChange }: Props
     setBranchName(null);
   }, [version?.id]);
 
-  /** Lance une action longue, affiche son résultat ou son erreur. */
+  /** Lance une action longue, notifie son résultat ou son erreur. */
   async function run(label: string, action: () => Promise<string | null>) {
     setBusy(label);
-    setMessage(null);
     try {
-      setMessage(await action());
+      const m = await action();
+      if (m) toast(m);
       await load();
       onVaultChange();
     } catch (e) {
-      setMessage(`Erreur : ${e}`);
+      toast(`Erreur : ${e}`);
     } finally {
       setBusy(null);
     }
+  }
+
+  /**
+   * Suppression différée : la notification laisse 6 s pour annuler, l'action
+   * ne part qu'à son expiration. Le résultat arrive dans une seconde notification.
+   */
+  function deferred(message: string, action: () => Promise<string>) {
+    toast({
+      message,
+      commit: async () => {
+        const m = await action();
+        toast(m);
+        await load();
+        onVaultChange();
+      },
+    });
   }
 
   // Les versions s'activent toutes seules à l'ouverture du projet.
@@ -120,7 +135,6 @@ export default function VersionsTab({ projectId, timeSig, onVaultChange }: Props
         >
           {busy ?? "Activer les versions"}
         </button>
-        {message && <p className="message">{message}</p>}
       </div>
     );
   }
@@ -175,11 +189,11 @@ export default function VersionsTab({ projectId, timeSig, onVaultChange }: Props
       { title: "Supprimer la branche", kind: "warning", okLabel: "Supprimer", cancelLabel: "Annuler" },
     );
     if (!ok) return;
-    run("Suppression de la branche…", async () => {
+    deferred(`La branche « ${b.name} » va être supprimée`, async () => {
       const freed = await api.deleteBranch(b.id);
-      setSelected(null);
+      setSelected((s) => (view?.versions.some((v) => v.id === s && v.branch_id === b.id) ? null : s));
       setChecked([]);
-      return `Branche supprimée, ${formatSize(freed)} libérés`;
+      return `Branche « ${b.name} » supprimée, ${formatSize(freed)} libérés`;
     });
   }
 
@@ -232,19 +246,10 @@ export default function VersionsTab({ projectId, timeSig, onVaultChange }: Props
   async function remove(target: Version | null = version) {
     const version = target;
     if (!version) return;
-    const ok = await ask(
-      `Supprimer « ${versionLabel(version)} » ? Les audios que plus aucune version n'utilise quittent le coffre.`,
-      {
-        title: "Supprimer la version",
-        kind: "warning",
-        okLabel: "Supprimer",
-        cancelLabel: "Annuler",
-      },
-    );
-    if (!ok) return;
-    run("Suppression…", async () => {
+    // Plus de confirmation : la notification laisse le temps d'annuler.
+    deferred(`« ${versionLabel(version)} » va être supprimée`, async () => {
       const freed = await api.deleteVersion(version.id);
-      setSelected(null);
+      setSelected((s) => (s === version.id ? null : s));
       setChecked((c) => c.filter((x) => x !== version.id));
       return `Version supprimée, ${formatSize(freed)} libérés`;
     });
@@ -324,7 +329,6 @@ export default function VersionsTab({ projectId, timeSig, onVaultChange }: Props
         overlay={
           <>
             {busy && <p className="message">{busy}</p>}
-            {message && <p className="message">{message}</p>}
 
             {checked.length === 2 && (
               <button className="primary" onClick={() => setComparing(true)}>
