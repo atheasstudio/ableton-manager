@@ -1,19 +1,12 @@
 import { useEffect, useState } from "react";
-import {
-  cleanFilter,
-  Collection,
-  ExplorerFilter,
-  listCollections,
-  newId,
-  sameFilter,
-  saveCollections,
-  toast,
-} from "../api-explorer";
+import { api, Collection, Filter } from "../api";
+import { cleanFilter, newId, sameFilter } from "../api-explorer";
+import { toast } from "./Toasts";
 import ContextMenu, { MenuState } from "./ContextMenu";
 
 interface Props {
-  filter: ExplorerFilter;
-  onFilter: (f: ExplorerFilter) => void;
+  filter: Filter;
+  onFilter: (f: Filter) => void;
 }
 
 /**
@@ -26,7 +19,7 @@ export default function Collections({ filter, onFilter }: Props) {
   const [menu, setMenu] = useState<MenuState | null>(null);
 
   useEffect(() => {
-    listCollections()
+    api.listCollections()
       .then(setCollections)
       .catch((e) => toast(`Collections indisponibles : ${e}`));
   }, []);
@@ -36,7 +29,7 @@ export default function Collections({ filter, onFilter }: Props) {
     const before = collections;
     setCollections(next);
     try {
-      await saveCollections(next);
+      await api.saveCollections(next);
       return true;
     } catch (e) {
       setCollections(before);
@@ -82,7 +75,7 @@ export default function Collections({ filter, onFilter }: Props) {
                 message: `Collection « ${c.name} » supprimée`,
                 undo: async () => {
                   setCollections(before);
-                  await saveCollections(before);
+                  await api.saveCollections(before);
                 },
               });
           },

@@ -425,7 +425,6 @@ export default function App() {
           playing={playing?.id ?? null}
           onPlay={(p) => play(playing?.id === p.id ? null : p)}
           onChanged={refresh}
-          onMessage={(m) => toast(m)}
         />
 
         {playing?.preview_hash && (

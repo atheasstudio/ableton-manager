@@ -52,6 +52,8 @@ Le device n'enregistre que si l'appli tourne : il parle à l'appli en OSC sur `1
 - Arbre en 2D : les versions sont des nœuds, avec une ligne par branche ; on glisse pour se déplacer, on zoome à la molette, et il y a un mode plein écran. Notes libres posées dans l'espace (double-clic) ou accrochées à une version (lâcher la note dessus). Maj + clic sur deux versions pour les comparer.
 - Comparaison de deux versions, à l'écoute aussi.
 - Supprimer une version rattache ses enfants à sa parente et libère les fichiers que plus rien n'utilise.
+- Un projet versionné envoyé à la corbeille depuis l'explorateur reste dans la bibliothèque avec ses versions (comme un disque débranché) : on peut le ressortir de la corbeille ou le restaurer depuis le coffre.
+- Un coffre déplacé laisse un fichier `moved-to.txt` dans son ancien dossier, pour qu'une sauvegarde en cours pendant le déplacement arrive quand même dans le nouveau.
 
 ## Explorateur
 
@@ -123,6 +125,7 @@ Fenêtre ouverte par le bouton « Santé de la bibliothèque » de la barre de g
 
 - **Samples manquants** : liste, par projet, des samples introuvables (même test que la fiche du projet : chemin absolu ou relatif au dossier). « Chercher les fichiers » parcourt les dossiers scannés à la recherche de fichiers du même nom ; on choisit le bon candidat (proposé d'office s'il est seul), puis « Réparer » réécrit les chemins dans le `.als` (`relocate.rs`).
 - Avant la réécriture : une version est créée si les versions sont actives, sinon le `.als` est copié en `.als.bak` (puis `.als.bak2`…). Le set doit être fermé dans Live. Le projet est ensuite relu pour la bibliothèque.
+- **Rapatrier les samples** (clic droit sur un projet dans l'explorateur) : les samples rangés hors du dossier du projet sont copiés dans `Samples/Collected`, comme le « Collect All and Save » de Live, puis le `.als` pointe vers ces copies (même sauvegarde préalable que la réparation, set fermé dans Live). Les originaux restent en place ; un nom déjà pris reçoit un suffixe (« Kick 2.wav ») ; les samples intégrés à Live et les fichiers introuvables sont laissés de côté.
 - **Plugins** : inventaire de tous les plugins avec le nombre de projets qui les utilisent. Un clic sur un nom filtre l'explorateur (évènement `am:filter-plugin`) ; le nombre de projets déplie la liste « Quels projets utilisent X ? ».
 - Les travaux longs tournent hors du fil de l'interface et envoient leur progression par l'évènement Tauri `doctor-progress`.
 

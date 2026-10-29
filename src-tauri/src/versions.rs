@@ -713,8 +713,9 @@ pub fn delete_branch(conn: &Connection, vault: &Vault, id: i64) -> Result<u64> {
     if b.is_main {
         return other("la branche principale ne peut pas être supprimée");
     }
-    {
+    let candidates = {
         let _guard = lock();
+        let candidates = hashes_of(conn, "branch_id = ?1", id)?;
         let tx = conn.unchecked_transaction()?;
         // Les versions d'autres branches parties de celle-ci remontent à sa base.
         tx.execute(
@@ -729,14 +730,15 @@ pub fn delete_branch(conn: &Connection, vault: &Vault, id: i64) -> Result<u64> {
         )?;
         tx.execute("DELETE FROM branches WHERE id = ?1", [id])?;
         tx.commit()?;
-    }
+        candidates
+    };
     if Path::new(&b.folder).exists() {
         if let Err(e) = trash::delete(&b.folder) {
             eprintln!("corbeille : {e}");
         }
     }
     let _guard = lock();
-    Ok(collect_garbage(conn, vault)?.1)
+    Ok(collect_garbage(conn, vault, candidates)?.1)
 }
 
 pub fn rename(conn: &Connection, id: i64, name: &str) -> Result<()> {
@@ -759,6 +761,7 @@ pub fn delete(conn: &Connection, vault: &Vault, id: i64) -> Result<u64> {
         })
         .optional()?
         .map_or_else(|| other("version introuvable"), Ok)?;
+    let candidates = hashes_of(conn, "id = ?1", id)?;
     let tx = conn.unchecked_transaction()?;
     tx.execute(
         "UPDATE versions SET parent_id = ?2 WHERE parent_id = ?1",
@@ -779,12 +782,32 @@ pub fn delete(conn: &Connection, vault: &Vault, id: i64) -> Result<u64> {
     )?;
     tx.execute("DELETE FROM versions WHERE id = ?1", [id])?;
     tx.commit()?;
-    Ok(collect_garbage(conn, vault)?.1)
+    Ok(collect_garbage(conn, vault, candidates)?.1)
 }
 
-pub(crate) fn collect_garbage(conn: &Connection, vault: &Vault) -> Result<(usize, u64)> {
+/// Fichiers du coffre utilisés par les versions qui vérifient `cond` (SQL sur
+/// `versions`, paramètre ?1) : à vérifier après leur suppression.
+fn hashes_of(conn: &Connection, cond: &str, param: i64) -> Result<HashSet<String>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT als_hash FROM versions WHERE {cond}
+         UNION SELECT preview_hash FROM versions WHERE {cond} AND preview_hash IS NOT NULL
+         UNION SELECT hash FROM version_files
+             WHERE hash IS NOT NULL AND version_id IN (SELECT id FROM versions WHERE {cond})"
+    ))?;
+    let hashes = stmt.query_map([param], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+    Ok(hashes)
+}
+
+/// Retire du coffre ceux des `candidates` que plus rien n'utilise, ainsi que
+/// les aperçus remplacés. Seuls ces fichiers sont vérifiés : le coffre n'est
+/// pas parcouru en entier.
+pub(crate) fn collect_garbage(conn: &Connection, vault: &Vault, mut candidates: HashSet<String>) -> Result<(usize, u64)> {
     const PREVIEWS: &str = "SELECT preview_hash FROM versions WHERE preview_hash IS NOT NULL
                             UNION SELECT preview_hash FROM projects WHERE preview_hash IS NOT NULL";
+    let mut stale = conn.prepare(&format!("SELECT hash FROM previews WHERE hash NOT IN ({PREVIEWS})"))?;
+    for hash in stale.query_map([], |r| r.get::<_, String>(0))? {
+        candidates.insert(hash?);
+    }
     conn.execute(
         &format!("DELETE FROM previews WHERE hash NOT IN ({PREVIEWS})"),
         [],
@@ -797,13 +820,16 @@ pub(crate) fn collect_garbage(conn: &Connection, vault: &Vault) -> Result<(usize
     let used = stmt
         .query_map([], |r| r.get(0))?
         .collect::<rusqlite::Result<HashSet<String>>>()?;
-    Ok(vault.collect_garbage(&used)?)
+    Ok(vault.collect_garbage(&candidates, &used)?)
 }
 
-/// Déplace le coffre (ex. vers un disque dédié).
-pub fn move_vault(vault: &Vault, dest: &Path) -> Result<Vault> {
+/// Déplace le coffre (ex. vers un disque dédié) et enregistre son nouveau
+/// dossier avant de rendre le verrou.
+pub fn move_vault(conn: &Connection, vault: &Vault, dest: &Path) -> Result<Vault> {
     let _guard = lock();
-    Ok(vault.move_to(dest)?)
+    let moved = vault.move_to(dest)?;
+    crate::db::set_setting(conn, crate::VAULT_DIR, &dest.to_string_lossy())?;
+    Ok(moved)
 }
 
 // ---------- Comparaison ----------

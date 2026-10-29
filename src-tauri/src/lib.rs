@@ -154,6 +154,7 @@ pub fn run() {
             commands::doctor_missing_samples,
             commands::doctor_find_candidates,
             commands::doctor_relink,
+            commands::doctor_collect_samples,
             commands::doctor_plugins,
             commands::close_to_tray,
             commands::set_close_to_tray,

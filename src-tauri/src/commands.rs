@@ -16,7 +16,7 @@ use crate::live_window;
 use crate::previews::{self, PreviewInfo};
 use crate::versions::{self, Branch, Diff, NewBranch, RestoreReport, VersionRow};
 use crate::watcher::SaveWatcher;
-use crate::{doctor, notes, organize, scanner, tray, worktime, AppState, VAULT_DIR};
+use crate::{doctor, notes, organize, scanner, tray, worktime, AppState};
 
 /// Erreur renvoyée à l'interface sous forme de texte.
 #[derive(Debug, thiserror::Error)]
@@ -383,8 +383,7 @@ pub async fn vault_info(app: AppHandle) -> Result<VaultInfo> {
 #[tauri::command]
 pub async fn set_vault_dir(app: AppHandle, path: String) -> Result<()> {
     in_background(app, move |c, v| {
-        versions::move_vault(v, &PathBuf::from(&path))?;
-        db::set_setting(c, VAULT_DIR, &path)?;
+        versions::move_vault(c, v, &PathBuf::from(&path))?;
         Ok(())
     })
     .await
@@ -914,6 +913,19 @@ pub async fn doctor_relink(
         let vault = state.vault(&conn)?;
         let open = live_window::current_set();
         Ok(doctor::relink(&mut conn, &vault, project_id, &relinks, open.as_ref(), now())?)
+    })
+    .await
+}
+
+/// Copie dans le projet les samples rangés ailleurs et fait pointer le set vers ces copies.
+#[tauri::command]
+pub async fn doctor_collect_samples(app: AppHandle, project_id: i64) -> Result<doctor::RelinkReport> {
+    blocking(app, move |app| {
+        let state = app.state::<AppState>();
+        let mut conn = state.open_db()?;
+        let vault = state.vault(&conn)?;
+        let open = live_window::current_set();
+        Ok(doctor::collect_samples(&mut conn, &vault, project_id, open.as_ref(), now())?)
     })
     .await
 }
