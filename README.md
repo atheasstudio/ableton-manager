@@ -68,6 +68,36 @@ Le device n'enregistre que si l'appli tourne : il parle à l'appli en OSC sur `1
 - Actions destructrices (supprimer une version, une branche, une session de travail) : rien ne part tout de suite, la notification laisse 6 s pour « Annuler » ; la suppression a lieu à son expiration (ou à la fermeture de la fenêtre). La suppression d'une branche garde sa confirmation, puisque son dossier part à la corbeille.
 - N'importe quelle partie de l'interface peut en afficher une avec l'évènement DOM `am:toast` (`{ message, undo?, commit?, duration? }`).
 
+## Suivi du temps
+
+- Toutes les 20 s, l'appli lit le set ouvert dans Live (titre de sa fenêtre) et prolonge la session de travail du projet (table `work_sessions`, branche comprise). Une pause de plus de 3 min ouvre une nouvelle session.
+- Le temps ne compte que si quelqu'un est là : clavier ou souris utilisés dans les 5 dernières minutes, ou Live en train de jouer (Remote Script).
+- L'évènement Tauri `worktime-changed` (`{ project_id }`) est émis quand une session commence, se termine (set fermé, autre set ouvert, absence) ou est supprimée, pas à chaque relevé.
+- Réglages → « Temps passé » : case « Suivre le temps passé » (réglage `worktime_enabled`) et total de la semaine avec les projets les plus travaillés.
+- Les projets qui ont du temps noté ne sont pas retirés de la bibliothèque si leur disque est débranché.
+
+## Collections
+
+- Le filtre de l'explorateur accepte aussi `worked_since`, `not_worked_since`, `modified_since` (durées en secondes comptées depuis maintenant ; « pas travaillé depuis » inclut les projets jamais travaillés) et `plugin` (nom exact).
+- Une collection est un filtre enregistré sous un nom : `{ id, name, filter }`. Elles sont stockées en JSON dans la table `settings` (clé `collections`), via les commandes `list_collections` et `save_collections`.
+- Tant que rien n'est enregistré, trois collections sont proposées : « Touchés cette semaine », « Oubliés depuis 3 mois », « En cours ».
+
+## Santé de la bibliothèque
+
+Fenêtre ouverte par le bouton « Santé de la bibliothèque » de la barre de gauche (évènement DOM `am:open-doctor`).
+
+- **Samples manquants** : liste, par projet, des samples introuvables (même test que la fiche du projet : chemin absolu ou relatif au dossier). « Chercher les fichiers » parcourt les dossiers scannés à la recherche de fichiers du même nom ; on choisit le bon candidat (proposé d'office s'il est seul), puis « Réparer » réécrit les chemins dans le `.als` (`relocate.rs`).
+- Avant la réécriture : une version est créée si les versions sont actives, sinon le `.als` est copié en `.als.bak` (puis `.als.bak2`…). Le set doit être fermé dans Live. Le projet est ensuite relu pour la bibliothèque.
+- **Plugins** : inventaire de tous les plugins avec le nombre de projets qui les utilisent. Un clic sur un nom filtre l'explorateur (évènement `am:filter-plugin`) ; le nombre de projets déplie la liste « Quels projets utilisent X ? ».
+- Les travaux longs tournent hors du fil de l'interface et envoient leur progression par l'évènement Tauri `doctor-progress`.
+
+## Icône dans la zone de notification
+
+- L'appli place une icône dans la zone de notification de Windows (construite en Rust, `tray.rs`) : clic pour afficher la fenêtre, menu Ouvrir / Scanner / Quitter. « Scanner » scanne en tâche de fond et annonce le résultat dans une notification.
+- La croix de la fenêtre la réduit dans la zone de notification au lieu de quitter (Réglages → Fenêtre ; réglage `close_to_tray`). Pour quitter : menu de l'icône → Quitter.
+- « Lancer au démarrage de Windows » (Réglages → Fenêtre) utilise `tauri-plugin-autostart` : l'appli est lancée avec `--hidden` et reste cachée dans la zone de notification (le suivi du temps et les versions tournent).
+- Une seule instance : relancer l'appli réaffiche la fenêtre de celle qui tourne déjà.
+
 ## Développer
 
 Prérequis : [Rust](https://rustup.rs), Node 22 et les [prérequis Tauri](https://tauri.app/start/prerequisites/) (WebView2 est déjà présent sur Windows 10/11).

@@ -1,6 +1,15 @@
 import { useEffect, useState } from "react";
 import { ask, open } from "@tauri-apps/plugin-dialog";
-import { api, CaptureStatus, formatSize, NO_USER_LIBRARY, Root, VaultInfo } from "../api";
+import {
+  api,
+  CaptureStatus,
+  formatDuration,
+  formatSize,
+  NO_USER_LIBRARY,
+  Root,
+  VaultInfo,
+  WorktimeOverview,
+} from "../api";
 
 /** Dossier proposé au premier lancement. */
 export const DEFAULT_ROOT = "F:\\musique\\Projets";
@@ -22,6 +31,42 @@ export default function SettingsDialog(props: Props) {
   const [movingVault, setMovingVault] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [deviceMessage, setDeviceMessage] = useState<string | null>(null);
+  const [worktimeOn, setWorktimeOn] = useState<boolean | null>(null);
+  const [overview, setOverview] = useState<WorktimeOverview | null>(null);
+  const [closeToTray, setCloseToTray] = useState<boolean | null>(null);
+  const [autostart, setAutostart] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    api.worktimeEnabled().then(setWorktimeOn, () => setWorktimeOn(null));
+    api.worktimeOverview().then(setOverview, () => setOverview(null));
+    api.closeToTray().then(setCloseToTray, () => setCloseToTray(null));
+    api.autostartEnabled().then(setAutostart, () => setAutostart(null));
+  }, []);
+
+  /** Bascule un réglage booléen, et revient en arrière si l'appel échoue. */
+  async function toggle(
+    on: boolean,
+    set: (v: boolean) => void,
+    save: (v: boolean) => Promise<void>,
+  ) {
+    set(on);
+    try {
+      await save(on);
+    } catch (e) {
+      set(!on);
+      setMessage(`Erreur : ${e}`);
+    }
+  }
+
+  async function toggleWorktime(on: boolean) {
+    setWorktimeOn(on);
+    try {
+      await api.setWorktimeEnabled(on);
+    } catch (e) {
+      setWorktimeOn(!on);
+      setMessage(`Erreur : ${e}`);
+    }
+  }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && props.onClose();
@@ -160,6 +205,56 @@ export default function SettingsDialog(props: Props) {
             <button onClick={installDevice}>Installer le device…</button>
           </div>
           {deviceMessage && <p className="message">{deviceMessage}</p>}
+        </section>
+
+        <section>
+          <h3>Temps passé</h3>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={worktimeOn ?? true}
+              disabled={worktimeOn === null}
+              onChange={(e) => toggleWorktime(e.target.checked)}
+            />{" "}
+            Suivre le temps passé
+          </label>
+          <p className="message">
+            Le temps compte quand le set est ouvert dans Live et que tu es là (clavier, souris ou
+            lecture en cours).
+          </p>
+          {overview && (
+            <p className="message">
+              Cette semaine : {formatDuration(overview.week)}
+              {overview.top.length > 0 &&
+                " · " +
+                  overview.top
+                    .slice(0, 3)
+                    .map((p) => `${p.name} (${formatDuration(p.seconds)})`)
+                    .join(", ")}
+            </p>
+          )}
+        </section>
+
+        <section>
+          <h3>Fenêtre</h3>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={closeToTray ?? true}
+              disabled={closeToTray === null}
+              onChange={(e) => toggle(e.target.checked, setCloseToTray, api.setCloseToTray)}
+            />{" "}
+            La croix réduit dans la zone de notification (sinon elle quitte)
+          </label>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={autostart ?? false}
+              disabled={autostart === null}
+              onChange={(e) => toggle(e.target.checked, setAutostart, api.setAutostartEnabled)}
+            />{" "}
+            Lancer au démarrage de Windows (dans la zone de notification)
+          </label>
         </section>
       </div>
     </div>
