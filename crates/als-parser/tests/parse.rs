@@ -135,6 +135,14 @@ fn real_projects() {
             set.plugins.len(),
             set.samples.len()
         );
+        // Sans relocalisation, la réécriture rend exactement le même XML.
+        let bytes = std::fs::read(&entry).unwrap();
+        let same = als_parser::relocate_samples(&bytes, &Default::default()).unwrap();
+        assert!(
+            als_parser::read_xml(&same).unwrap() == als_parser::read_xml(&bytes).unwrap(),
+            "{}: réécriture non fidèle",
+            entry.display()
+        );
         count += 1;
     }
     assert!(count > 0, "aucun .als trouvé dans {dir}");

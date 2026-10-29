@@ -13,6 +13,9 @@ use quick_xml::events::{BytesStart, Event};
 use quick_xml::Reader;
 use serde::Serialize;
 
+mod relocate;
+pub use relocate::{read_xml, relocate_samples, Relocation};
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("lecture du fichier : {0}")]
@@ -81,9 +84,27 @@ pub struct Sample {
     pub relative_path: Option<String>,
     /// Nom du fichier (toujours présent dans les vieux formats).
     pub name: Option<String>,
+    /// Base du chemin relatif selon Live : 3 = dossier du projet,
+    /// 7 = bibliothèque intégrée de Live, 0 = aucun.
+    pub relative_path_type: Option<u32>,
 }
 
 impl Sample {
+    /// Vrai si le fichier fait partie de la bibliothèque intégrée de Live
+    /// (réinstallable, inutile de l'archiver).
+    pub fn is_builtin(&self) -> bool {
+        self.relative_path_type == Some(7)
+    }
+
+    /// Vrai si Live retrouve ce fichier par rapport au dossier du projet.
+    pub fn is_project_relative(&self) -> bool {
+        match self.relative_path_type {
+            Some(t) => t == 3,
+            // Live 9-10 : pas de type, le chemin relatif est relatif au projet.
+            None => self.path.is_none() && self.relative_path.is_some(),
+        }
+    }
+
     /// Nom de fichier lisible, quelle que soit la version du format.
     pub fn file_name(&self) -> Option<&str> {
         if let Some(n) = self.name.as_deref().filter(|n| !n.is_empty()) {
@@ -159,6 +180,11 @@ pub fn parse_xml<R: BufRead>(input: R) -> Result<LiveSet, Error> {
         return Err(Error::NotAbletonSet);
     }
     Ok(parser.set)
+}
+
+/// Lit un `.als` déjà chargé en mémoire (compressé ou non).
+pub fn parse_bytes(als: &[u8]) -> Result<LiveSet, Error> {
+    parse_xml(&read_xml(als)?[..])
 }
 
 /// Lit un `.als` depuis n'importe quelle source (utile pour les tests).
@@ -268,6 +294,9 @@ impl Parser {
                 "Path" if in_file_ref => b.sample.path = non_empty(),
                 "Name" if in_file_ref => b.sample.name = non_empty(),
                 "RelativePath" if in_file_ref => b.sample.relative_path = non_empty(),
+                "RelativePathType" if in_file_ref => {
+                    b.sample.relative_path_type = value().and_then(|v| v.parse().ok())
+                }
                 "RelativePathElement" if parent == Some("RelativePath") => {
                     if let Some(dir) = attr(e, "Dir") {
                         b.dirs.push(dir);
@@ -330,6 +359,9 @@ impl Parser {
             Some(existing) => {
                 if existing.relative_path.is_none() {
                     existing.relative_path = sample.relative_path;
+                }
+                if existing.relative_path_type.is_none() {
+                    existing.relative_path_type = sample.relative_path_type;
                 }
             }
             None => self.set.samples.push(sample),

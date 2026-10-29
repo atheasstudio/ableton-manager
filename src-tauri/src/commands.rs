@@ -1,6 +1,7 @@
 //! Commandes appelées par l'interface (via `invoke`).
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
@@ -8,13 +9,17 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
 use crate::db::{self, Filter, ProjectDetail, ProjectSummary, Root};
-use crate::{scanner, AppState};
+use crate::versions::{self, Branch, Diff, NewBranch, RestoreReport, VersionRow};
+use crate::watcher::SaveWatcher;
+use crate::{scanner, AppState, VAULT_DIR};
 
 /// Erreur renvoyée à l'interface sous forme de texte.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("base de données : {0}")]
     Db(#[from] rusqlite::Error),
+    #[error("{0}")]
+    Versions(#[from] versions::Error),
     #[error("{0}")]
     Other(String),
 }
@@ -90,6 +95,10 @@ fn scan_blocking(app: &AppHandle) -> Result<ScanReport> {
             );
 
             let conn = state.db.lock().unwrap();
+            // Dossier d'une branche : il appartient au projet d'origine.
+            if db::is_branch_folder(&conn, &p.folder.to_string_lossy())? {
+                continue;
+            }
             if db::indexed_mtime(&conn, &als)? == Some(p.modified_at) {
                 // Inchangé : on marque juste le projet comme revu.
                 conn.execute("UPDATE projects SET scanned_at = ?2 WHERE als_path = ?1", (&als, started))?;
@@ -190,4 +199,135 @@ pub fn open_folder(app: AppHandle, state: State<AppState>, id: i64) -> Result<()
     app.opener()
         .reveal_item_in_dir(als)
         .map_err(|e| Error::Other(e.to_string()))
+}
+
+// ---------- Versions et branches ----------
+
+/// Lance un travail long sur le coffre hors du fil de l'interface, avec sa
+/// propre connexion à la base.
+async fn in_background<T: Send + 'static>(
+    app: AppHandle,
+    work: impl FnOnce(&rusqlite::Connection, &crate::vault::Vault) -> versions::Result<T> + Send + 'static,
+) -> Result<T> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let conn = state.open_db()?;
+        let vault = state.vault(&conn)?;
+        Ok(work(&conn, &vault)?)
+    })
+    .await
+    .map_err(|e| Error::Other(e.to_string()))?
+}
+
+#[derive(Serialize)]
+pub struct VersionsView {
+    /// Vide si les versions ne sont pas activées pour ce projet.
+    pub branches: Vec<Branch>,
+    /// De la plus récente à la plus ancienne.
+    pub versions: Vec<VersionRow>,
+}
+
+#[tauri::command]
+pub fn get_versions(state: State<AppState>, project_id: i64) -> Result<VersionsView> {
+    let conn = state.db.lock().unwrap();
+    Ok(VersionsView {
+        branches: versions::branches(&conn, project_id)?,
+        versions: versions::list(&conn, project_id)?,
+    })
+}
+
+/// Active les versions d'un projet. Renvoie le nombre de versions créées.
+#[tauri::command]
+pub async fn enable_versions(
+    app: AppHandle,
+    watcher: State<'_, Arc<SaveWatcher>>,
+    project_id: i64,
+    import_backups: bool,
+) -> Result<usize> {
+    let created = in_background(app.clone(), move |c, v| {
+        versions::enable(c, v, project_id, import_backups, now())
+    })
+    .await?;
+    watcher.sync(&app);
+    Ok(created)
+}
+
+/// Crée une version tout de suite (sans attendre une sauvegarde).
+#[tauri::command]
+pub async fn snapshot_now(app: AppHandle, branch_id: i64) -> Result<Option<i64>> {
+    in_background(app, move |c, v| versions::snapshot(c, v, branch_id, "manual")).await
+}
+
+#[tauri::command]
+pub fn rename_version(state: State<AppState>, id: i64, name: String) -> Result<()> {
+    Ok(versions::rename(&state.db.lock().unwrap(), id, &name)?)
+}
+
+#[tauri::command]
+pub async fn restore_version(app: AppHandle, id: i64) -> Result<RestoreReport> {
+    in_background(app, move |c, v| versions::restore(c, v, id, now())).await
+}
+
+#[tauri::command]
+pub async fn create_branch(
+    app: AppHandle,
+    watcher: State<'_, Arc<SaveWatcher>>,
+    version_id: i64,
+    name: String,
+) -> Result<NewBranch> {
+    let created =
+        in_background(app.clone(), move |c, v| versions::create_branch(c, v, version_id, &name, now()))
+            .await?;
+    watcher.sync(&app);
+    Ok(created)
+}
+
+/// Renvoie le nombre d'octets libérés dans le coffre.
+#[tauri::command]
+pub async fn delete_version(app: AppHandle, id: i64) -> Result<u64> {
+    in_background(app, move |c, v| versions::delete(c, v, id)).await
+}
+
+#[tauri::command]
+pub fn compare_versions(state: State<AppState>, a: i64, b: i64) -> Result<Diff> {
+    Ok(versions::compare(&state.db.lock().unwrap(), a, b)?)
+}
+
+#[tauri::command]
+pub fn open_branch(app: AppHandle, state: State<AppState>, branch_id: i64) -> Result<()> {
+    let b = versions::branch(&state.db.lock().unwrap(), branch_id)?;
+    app.opener().open_path(b.als_path, None::<&str>).map_err(|e| Error::Other(e.to_string()))
+}
+
+#[tauri::command]
+pub fn open_branch_folder(app: AppHandle, state: State<AppState>, branch_id: i64) -> Result<()> {
+    let b = versions::branch(&state.db.lock().unwrap(), branch_id)?;
+    app.opener().reveal_item_in_dir(b.als_path).map_err(|e| Error::Other(e.to_string()))
+}
+
+#[derive(Serialize)]
+pub struct VaultInfo {
+    pub path: String,
+    pub files: usize,
+    pub bytes: u64,
+}
+
+#[tauri::command]
+pub async fn vault_info(app: AppHandle) -> Result<VaultInfo> {
+    in_background(app, |_, v| {
+        let (files, bytes) = v.usage()?;
+        Ok(VaultInfo { path: v.root().to_string_lossy().into_owned(), files, bytes })
+    })
+    .await
+}
+
+/// Change le dossier du coffre et y déplace les fichiers déjà rangés.
+#[tauri::command]
+pub async fn set_vault_dir(app: AppHandle, path: String) -> Result<()> {
+    in_background(app, move |c, v| {
+        versions::move_vault(v, &PathBuf::from(&path))?;
+        db::set_setting(c, VAULT_DIR, &path)?;
+        Ok(())
+    })
+    .await
 }

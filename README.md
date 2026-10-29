@@ -11,6 +11,17 @@ Stack : Tauri 2 (Rust) + React, SQLite.
 - Recherche instantanée sur le nom, la note, les plugins, les samples et les tags (sans tenir compte des accents).
 - Tags, statut, favoris, note libre ; boutons « Ouvrir dans Ableton » et « Ouvrir le dossier ».
 
+## Phases 4 et 5 : coffre, versions et branches
+
+- Onglet « Versions » d'un projet → « Activer les versions ». L'historique du dossier `Backup/` de Live peut être repris.
+- Chaque sauvegarde dans Ableton crée une version (surveillance du dossier, plus un rattrapage au lancement). Elle garde le `.als` et tous les audios qu'il utilise, où qu'ils soient. Seuls les samples intégrés à Live sont exclus.
+- Coffre : fichiers rangés par empreinte BLAKE3 (`objects/ab/cdef…`), donc stockés une seule fois. Il est placé par défaut dans les données de l'appli et peut être déplacé vers un disque dédié.
+- Chaque version reçoit un nom automatique qui résume les changements (pistes, plugins, tempo, audios). On peut la renommer.
+- Restaurer : l'état actuel est sauvegardé d'abord, puis le set revient à la version choisie, ce qui crée une nouvelle version. Les audios effacés ou modifiés sont remis en place.
+- Nouvelle branche : recrée un dossier complet `<projet> - <branche> Project` à côté de l'original. Ses sauvegardes alimentent la branche.
+- Arbre (une colonne par branche) et comparaison de deux versions. L'emplacement des aperçus audio est prévu (`preview_hash`) pour la pré-écoute.
+- Supprimer une version rattache ses enfants à sa parente et libère les fichiers que plus rien n'utilise.
+
 ## Développer
 
 Prérequis : [Rust](https://rustup.rs), Node 22 et les [prérequis Tauri](https://tauri.app/start/prerequisites/) (WebView2 est déjà présent sur Windows 10/11).
@@ -33,7 +44,7 @@ ALS_FIXTURES="F:/musique/Projets" cargo test --workspace -- --nocapture
 | Dossier | Contenu |
 | --- | --- |
 | `crates/als-parser` | Lecture des `.als` (XML gzip), testable seule |
-| `src-tauri/src` | Appli Rust : base SQLite (`db.rs`), scan (`scanner.rs`), commandes (`commands.rs`) |
+| `src-tauri/src` | Appli Rust : base SQLite (`db.rs`), scan (`scanner.rs`), coffre (`vault.rs`), versions et branches (`versions.rs`), détection des sauvegardes (`watcher.rs`), commandes (`commands.rs`) |
 | `src` | Interface React |
 
 La base est stockée dans `%APPDATA%\studio.atheas.ableton-manager\library.db`.
