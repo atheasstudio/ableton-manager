@@ -3,6 +3,7 @@ mod audio;
 mod capture;
 mod commands;
 mod db;
+mod doctor;
 mod files;
 mod live;
 mod live_window;
@@ -10,6 +11,7 @@ mod notes;
 mod organize;
 mod previews;
 mod scanner;
+mod tray;
 mod vault;
 mod versions;
 mod watcher;
@@ -51,6 +53,13 @@ impl AppState {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // En premier : une deuxième instance (raccourci, démarrage) réaffiche
+        // simplement la fenêtre de la première, cachée dans la zone de notification.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| tray::show(app)))
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec![tray::HIDDEN_ARG]),
+        ))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
@@ -70,8 +79,15 @@ pub fn run() {
             ));
             app.manage(live::Live::new());
             worktime::start(app.handle().clone());
+            tray::build(app.handle())?;
+            if tray::started_hidden() {
+                if let Some(w) = app.get_webview_window("main") {
+                    w.hide()?;
+                }
+            }
             Ok(())
         })
+        .on_window_event(tray::on_window_event)
         .invoke_handler(tauri::generate_handler![
             commands::list_roots,
             commands::add_root,
@@ -133,6 +149,16 @@ pub fn run() {
             commands::worktime_overview,
             commands::worktime_enabled,
             commands::set_worktime_enabled,
+            commands::list_collections,
+            commands::save_collections,
+            commands::doctor_missing_samples,
+            commands::doctor_find_candidates,
+            commands::doctor_relink,
+            commands::doctor_plugins,
+            commands::close_to_tray,
+            commands::set_close_to_tray,
+            commands::autostart_enabled,
+            commands::set_autostart_enabled,
         ])
         .run(tauri::generate_context!())
         .expect("erreur au lancement de l'application");

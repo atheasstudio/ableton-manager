@@ -491,24 +491,48 @@ pub struct ProjectSummary {
 const WORKTIME_SQL: &str = "(SELECT COALESCE(SUM(ended_at - started_at), 0) FROM work_sessions WHERE project_id = p.id),
     (SELECT MAX(ended_at) FROM work_sessions WHERE project_id = p.id)";
 
-#[derive(Debug, Default, serde::Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, serde::Deserialize, Serialize)]
 pub struct Filter {
     /// Texte libre : nom, note, plugin, sample ou tag.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub query: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tag: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub favorites_only: bool,
     /// Inclure les projets masqués.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub show_hidden: bool,
+    /// Durées en secondes comptées depuis maintenant. Travaillé (session de
+    /// travail) dans cette durée :
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worked_since: Option<i64>,
+    /// Pas travaillé dans cette durée (jamais travaillé compris).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub not_worked_since: Option<i64>,
+    /// .als modifié dans cette durée.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modified_since: Option<i64>,
+    /// Utilise ce plugin (nom exact).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugin: Option<String>,
 }
 
 /// Vrai si `p` (alias de projects) est masqué, lui ou un dossier parent.
-const HIDDEN_SQL: &str = "EXISTS (SELECT 1 FROM hidden h WHERE h.path IN (p.als_path, p.folder)
+pub(crate) const HIDDEN_SQL: &str = "EXISTS (SELECT 1 FROM hidden h WHERE h.path IN (p.als_path, p.folder)
     OR substr(p.folder, 1, length(h.path) + 1) IN (h.path || '\\', h.path || '/'))";
 
 pub fn search_projects(conn: &Connection, f: &Filter) -> Result<Vec<ProjectSummary>> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64);
+    search_projects_at(conn, f, now)
+}
+
+/// `search_projects` avec une heure donnée (pour les durées du filtre).
+pub fn search_projects_at(conn: &Connection, f: &Filter, now: i64) -> Result<Vec<ProjectSummary>> {
     let fts = f.query.as_deref().and_then(fts_query);
     let mut stmt = conn.prepare(&format!(
         "SELECT p.id, p.name, p.folder, p.tempo, p.live_version, p.modified_at, p.status, p.favorite,
@@ -522,10 +546,28 @@ pub fn search_projects(conn: &Connection, f: &Filter) -> Result<Vec<ProjectSumma
            AND (?3 IS NULL OR p.id IN (SELECT pt.project_id FROM project_tags pt
                                        JOIN tags t ON t.id = pt.tag_id WHERE t.name = ?3))
            AND (?4 = 0 OR p.favorite = 1)
+           AND (?6 IS NULL OR EXISTS (SELECT 1 FROM work_sessions w
+                                      WHERE w.project_id = p.id AND w.ended_at >= ?10 - ?6))
+           AND (?7 IS NULL OR NOT EXISTS (SELECT 1 FROM work_sessions w
+                                          WHERE w.project_id = p.id AND w.ended_at >= ?10 - ?7))
+           AND (?8 IS NULL OR p.modified_at >= ?10 - ?8)
+           AND (?9 IS NULL OR p.id IN (SELECT project_id FROM project_items
+                                       WHERE kind = 'plugin' AND name = ?9))
          ORDER BY p.modified_at DESC"
     ))?;
     let rows = stmt.query_map(
-        params![fts, f.status, f.tag, f.favorites_only, f.show_hidden],
+        params![
+            fts,
+            f.status,
+            f.tag,
+            f.favorites_only,
+            f.show_hidden,
+            f.worked_since,
+            f.not_worked_since,
+            f.modified_since,
+            f.plugin,
+            now
+        ],
         |r| {
             let tags: Option<String> = r.get(8)?;
             Ok(ProjectSummary {
@@ -650,11 +692,7 @@ pub fn get_project(conn: &Connection, id: i64) -> Result<Option<ProjectDetail>> 
         let rows = stmt.query_map(params![id, kind], |r| {
             let path: Option<String> = r.get(1)?;
             let rel_path: Option<String> = r.get(2)?;
-            // Le projet a pu être déplacé : le chemin relatif peut marcher
-            // alors que l'absolu ne marche plus, et inversement.
-            let found = path.as_deref().is_some_and(|p| Path::new(p).exists())
-                || rel_path.as_deref().is_some_and(|p| folder.join(p).exists());
-            let missing = kind == "sample" && !found;
+            let missing = kind == "sample" && !sample_found(folder, path.as_deref(), rel_path.as_deref());
             Ok(ItemRow {
                 name: r.get(0)?,
                 path: path.or(rel_path),
@@ -676,6 +714,31 @@ pub fn get_project(conn: &Connection, id: i64) -> Result<Option<ProjectDetail>> 
     }))
 }
 
+/// Le sample existe-t-il sur le disque ? Le projet a pu être déplacé : le
+/// chemin relatif peut marcher alors que l'absolu ne marche plus, et inversement.
+pub fn sample_found(folder: &Path, path: Option<&str>, rel_path: Option<&str>) -> bool {
+    path.is_some_and(|p| Path::new(p).exists()) || rel_path.is_some_and(|p| folder.join(p).exists())
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+pub struct PluginUse {
+    pub name: String,
+    /// Nombre de projets (non masqués) qui l'utilisent.
+    pub projects: i64,
+}
+
+/// Tous les plugins de la bibliothèque, les plus utilisés d'abord.
+pub fn plugin_inventory(conn: &Connection) -> Result<Vec<PluginUse>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT i.name, COUNT(DISTINCT i.project_id) AS n
+         FROM project_items i JOIN projects p ON p.id = i.project_id
+         WHERE i.kind = 'plugin' AND NOT {HIDDEN_SQL}
+         GROUP BY i.name ORDER BY n DESC, i.name COLLATE NOCASE"
+    ))?;
+    let rows = stmt.query_map([], |r| Ok(PluginUse { name: r.get(0)?, projects: r.get(1)? }))?;
+    rows.collect()
+}
+
 pub fn als_path(conn: &Connection, id: i64) -> Result<Option<(String, String)>> {
     conn.query_row(
         "SELECT als_path, folder FROM projects WHERE id = ?1",
@@ -691,6 +754,45 @@ pub fn all_tags(conn: &Connection) -> Result<Vec<String>> {
     )?;
     let rows = stmt.query_map([], |r| r.get(0))?;
     rows.collect()
+}
+
+// ---------- Collections (filtres enregistrés) ----------
+
+/// Réglage : collections en JSON.
+pub const COLLECTIONS: &str = "collections";
+
+#[derive(Debug, Clone, PartialEq, serde::Deserialize, Serialize)]
+pub struct Collection {
+    pub id: String,
+    pub name: String,
+    pub filter: Filter,
+}
+
+/// Collections proposées tant que l'utilisateur n'a rien enregistré.
+pub fn default_collections() -> Vec<Collection> {
+    let c = |id: &str, name: &str, filter: Filter| Collection { id: id.into(), name: name.into(), filter };
+    vec![
+        c("semaine", "Touchés cette semaine", Filter { worked_since: Some(7 * 86_400), ..Default::default() }),
+        c("oublies", "Oubliés depuis 3 mois", Filter { not_worked_since: Some(90 * 86_400), ..Default::default() }),
+        c("en-cours", "En cours", Filter { status: Some("en_cours".into()), ..Default::default() }),
+    ]
+}
+
+pub fn list_collections(conn: &Connection) -> Result<Vec<Collection>> {
+    match get_setting(conn, COLLECTIONS)? {
+        // JSON illisible (édité à la main ?) : on repart des collections par défaut.
+        Some(json) => Ok(serde_json::from_str(&json).unwrap_or_else(|e| {
+            eprintln!("collections illisibles : {e}");
+            default_collections()
+        })),
+        None => Ok(default_collections()),
+    }
+}
+
+pub fn save_collections(conn: &Connection, collections: &[Collection]) -> Result<()> {
+    let json = serde_json::to_string(collections)
+        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+    set_setting(conn, COLLECTIONS, &json)
 }
 
 // ---------- Modifications par l'utilisateur ----------
@@ -783,6 +885,74 @@ mod tests {
             other_sets: &[],
         };
         upsert_project(conn, &p, 100).unwrap()
+    }
+
+    #[test]
+    fn filter_by_worktime_modification_and_plugin() {
+        let mut conn = open_in_memory().unwrap();
+        let now = 1_000 * 86_400;
+        let recent = insert(&mut conn, "r.als", "Récent", now - 86_400);
+        let old = insert(&mut conn, "o.als", "Ancien", now - 200 * 86_400);
+        insert(&mut conn, "n.als", "Jamais", now - 100 * 86_400);
+        let session = |id: i64, end: i64| {
+            conn.execute(
+                "INSERT INTO work_sessions (project_id, started_at, ended_at) VALUES (?1, ?2, ?2)",
+                params![id, end],
+            )
+            .unwrap();
+        };
+        session(recent, now - 3_600);
+        session(old, now - 120 * 86_400);
+
+        let names = |f: Filter| -> Vec<String> {
+            let mut v: Vec<_> = search_projects_at(&conn, &f, now).unwrap().into_iter().map(|p| p.name).collect();
+            v.sort();
+            v
+        };
+        assert_eq!(names(Filter { worked_since: Some(7 * 86_400), ..Default::default() }), ["Récent"]);
+        assert_eq!(
+            names(Filter { not_worked_since: Some(90 * 86_400), ..Default::default() }),
+            ["Ancien", "Jamais"]
+        );
+        assert_eq!(
+            names(Filter { modified_since: Some(150 * 86_400), ..Default::default() }),
+            ["Jamais", "Récent"]
+        );
+        assert_eq!(names(Filter { plugin: Some("Serum 2".into()), ..Default::default() }).len(), 3);
+        assert!(names(Filter { plugin: Some("Serum".into()), ..Default::default() }).is_empty(), "nom exact");
+    }
+
+    #[test]
+    fn plugin_inventory_counts_projects() {
+        let mut conn = open_in_memory().unwrap();
+        insert(&mut conn, "a.als", "A", 1);
+        insert(&mut conn, "b.als", "B", 2);
+        let inv = plugin_inventory(&conn).unwrap();
+        assert_eq!(inv, [PluginUse { name: "Serum 2".into(), projects: 2 }]);
+    }
+
+    #[test]
+    fn collections_default_then_saved() {
+        let conn = open_in_memory().unwrap();
+        let defaults = list_collections(&conn).unwrap();
+        assert_eq!(defaults.len(), 3);
+        assert_eq!(defaults[0].filter.worked_since, Some(604_800));
+        assert_eq!(defaults[1].filter.not_worked_since, Some(7_776_000));
+        assert_eq!(defaults[2].filter.status.as_deref(), Some("en_cours"));
+
+        let mine = vec![Collection {
+            id: "x".into(),
+            name: "Serum".into(),
+            filter: Filter { plugin: Some("Serum 2".into()), favorites_only: true, ..Default::default() },
+        }];
+        save_collections(&conn, &mine).unwrap();
+        assert_eq!(list_collections(&conn).unwrap(), mine);
+        // Les champs vides ne sont pas écrits.
+        let json = get_setting(&conn, COLLECTIONS).unwrap().unwrap();
+        assert!(!json.contains("null") && !json.contains("show_hidden"), "{json}");
+
+        save_collections(&conn, &[]).unwrap();
+        assert!(list_collections(&conn).unwrap().is_empty(), "liste vide gardée");
     }
 
     #[test]
