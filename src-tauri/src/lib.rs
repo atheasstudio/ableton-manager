@@ -125,6 +125,7 @@ pub fn run() {
             commands::create_dir,
             commands::delete_branch,
             commands::live_add_capture,
+            commands::open_project_id,
         ])
         .run(tauri::generate_context!())
         .expect("erreur au lancement de l'application");

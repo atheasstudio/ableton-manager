@@ -56,7 +56,15 @@ export default function App() {
     refreshRoots();
     refreshVault();
     const unlisten = listen<ScanProgress>("scan-progress", (e) => setProgress(e.payload));
-    const pollCapture = () => api.captureStatus().then(setCapture, () => setCapture(null));
+    // Suit le set ouvert dans Live : quand il change, on le sélectionne.
+    let lastOpen: number | null = null;
+    const pollCapture = () => {
+      api.captureStatus().then(setCapture, () => setCapture(null));
+      api.openProjectId().then((id) => {
+        if (id !== null && id !== lastOpen) setSelected(id);
+        lastOpen = id;
+      }, () => {});
+    };
     pollCapture();
     const timer = setInterval(pollCapture, 5000);
     // Un nouvel aperçu change l'icône d'écoute de la liste.

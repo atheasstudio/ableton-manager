@@ -247,6 +247,7 @@ export const api = {
   createDir: (parent: string, name: string) => invoke<string>("create_dir", { parent, name }),
   deleteBranch: (branchId: number) => invoke<number>("delete_branch", { branchId }),
   liveAddCapture: () => invoke<void>("live_add_capture"),
+  openProjectId: () => invoke<number | null>("open_project_id"),
 
   getVersions: (projectId: number) => invoke<VersionsView>("get_versions", { projectId }),
   enableVersions: (projectId: number, importBackups: boolean) =>
