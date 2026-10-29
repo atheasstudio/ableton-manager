@@ -26,3 +26,16 @@
 .ecard-nowave.loading { background: var(--bg); }
 .waveform.static { cursor: inherit; pointer-events: none; }
 .ecard-meta { display: flex; flex-wrap: wrap; gap: 0 7px; color: var(--muted); font-size: 11px; overflow: hidden; white-space: nowrap; }
+
+/* Glisser un projet sur un tag (pointer events) */
+.explorer-body { position: relative; }
+.elist { user-select: none; }
+body.am-dragging, body.am-dragging * { cursor: grabbing !important; user-select: none !important; }
+.tag-drop { position: absolute; z-index: 20; top: 0; left: 0; right: 0; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; background: var(--surface); border-bottom: 1px solid var(--accent); box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4); }
+.tag-drop small { color: var(--muted); font-size: 11px; }
+.tag-drop-list { display: flex; flex-wrap: wrap; gap: 5px; }
+.tag-target { padding: 4px 10px; font-size: 12px; border: 1px dashed var(--border); border-radius: 12px; background: var(--surface-2); }
+.tag-target.has { opacity: 0.5; }
+.tag-target.new { color: var(--muted); }
+.tag-target.over { border-style: solid; border-color: var(--accent); color: var(--accent); }
+.drag-ghost { position: fixed; z-index: 1000; pointer-events: none; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 3px 9px; font-size: 12px; background: var(--accent); color: #111; border-radius: 4px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4); }
