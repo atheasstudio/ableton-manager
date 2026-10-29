@@ -82,6 +82,13 @@ Le device n'enregistre que si l'appli tourne : il parle à l'appli en OSC sur `1
 
 Les touches seules ne font rien quand tu tapes dans un champ ou qu'une fenêtre est ouverte. La palette (Ctrl + K) cherche parmi tous les projets (nom, tags, statut, sans tenir compte des accents) et les actions : ouvrir dans Live, ouvrir le dossier, écouter, rendu complet, scanner, réglages, santé de la bibliothèque, et les collections enregistrées (elles appliquent leur filtre à l'explorateur). ↑ ↓ pour choisir, Entrée pour lancer, Échap pour fermer.
 
+### Glisser-déposer
+
+- Un dossier glissé depuis l'explorateur Windows sur la fenêtre devient un dossier de la bibliothèque (s'il n'y est pas déjà), puis un scan se lance.
+- Un fichier audio (WAV, AIFF, MP3, FLAC, OGG, M4A) devient l'aperçu du projet ouvert, ou du projet de la liste sur lequel tu le lâches.
+- Pendant le glisser, un bandeau dit ce qui va se passer. Les fichiers et dossiers se reconnaissent à leur extension : un dossier nommé comme un fichier (« Mix.wav ») serait pris pour un fichier.
+- Le glisser-déposer passe par les évènements natifs de Tauri (`dragDropEnabled` de la fenêtre dans `tauri.conf.json`), ce qui désactive le glisser-déposer HTML dans la page.
+
 ## Développer
 
 Prérequis : [Rust](https://rustup.rs), Node 22 et les [prérequis Tauri](https://tauri.app/start/prerequisites/) (WebView2 est déjà présent sur Windows 10/11).

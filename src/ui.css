@@ -62,3 +62,9 @@ button.link.ws-worktime:hover { color: var(--accent); }
 .shortcuts-help dd { margin: 0; }
 .shortcuts-help .muted { color: var(--muted); font-size: 12px; margin: 0; }
 kbd { display: inline-block; min-width: 18px; padding: 1px 6px; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; background: var(--surface-2); font-family: inherit; font-size: 12px; line-height: 1.4; text-align: center; }
+
+/* ---------- Glisser-déposer de fichiers ---------- */
+.dropzone { position: fixed; inset: 8px; z-index: 900; pointer-events: none; display: flex; align-items: flex-end; justify-content: center; border: 2px dashed var(--accent); border-radius: 10px; background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.dropzone p { margin: 0 0 32px; padding: 10px 16px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--accent); font-weight: 600; }
+.dropzone.refused { border-color: var(--muted); background: rgba(0, 0, 0, 0.15); }
+.dropzone.refused p { border-color: var(--border); color: var(--muted); font-weight: 400; }

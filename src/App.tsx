@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { api, CaptureStatus, Filter, ProjectSummary, Root, ScanProgress, VaultInfo } from "./api";
 import Explorer from "./components/Explorer";
 import CommandPalette, { PaletteAction, ShortcutsHelp } from "./components/CommandPalette";
@@ -11,6 +12,41 @@ import { emit, useShortcuts } from "./shortcuts";
 import "./ui.css";
 
 const SELECTED_KEY = "app.selected";
+
+const AUDIO_EXT = ["wav", "aif", "aiff", "mp3", "flac", "ogg", "m4a"];
+
+/** Extension (minuscules) du dernier élément d'un chemin, "" s'il n'en a pas. */
+function extension(path: string): string {
+  const name = path.split(/[\\/]/).filter(Boolean).pop() ?? "";
+  const m = /\.([^.\s]{1,5})$/.exec(name);
+  // « v1.2 » ou « Song Project » : des dossiers, pas des extensions.
+  return m && !/^\d+$/.test(m[1]) ? m[1].toLowerCase() : "";
+}
+
+/** Fichiers et dossiers glissés sur la fenêtre, triés. */
+function sortDrop(paths: string[]) {
+  const audio = paths.filter((p) => AUDIO_EXT.includes(extension(p)));
+  const folders = paths.filter((p) => extension(p) === "");
+  const sets = paths.filter((p) => extension(p) === "als");
+  return { audio, folders, sets };
+}
+
+/** Chemin Windows comparable : sans casse, séparateurs unifiés, sans séparateur final. */
+function normPath(p: string): string {
+  return p.replace(/\//g, "\\").replace(/\\+$/, "").toLowerCase();
+}
+
+/** Le dossier est-il déjà une racine, ou dans une racine ? */
+function covered(path: string, root: string): boolean {
+  const a = normPath(path);
+  const b = normPath(root);
+  return a === b || a.startsWith(b + "\\");
+}
+
+interface DropHint {
+  text: string;
+  ok: boolean;
+}
 
 function savedSelection(): number | null {
   try {
@@ -33,6 +69,8 @@ export default function App() {
   const [capture, setCapture] = useState<CaptureStatus | null>(null);
   const [playing, setPlaying] = useState<ProjectSummary | null>(null);
   const [settings, setSettings] = useState(false);
+  /** Change pour recharger la fiche du projet (aperçu importé par glisser-déposer). */
+  const [workspaceKey, setWorkspaceKey] = useState(0);
   const [palette, setPalette] = useState(false);
   const [help, setHelp] = useState(false);
 
@@ -45,6 +83,7 @@ export default function App() {
   const switching = useRef(false);
   const [playStart, setPlayStart] = useState<number | undefined>(undefined);
   const player = useRef<PlayerHandle | null>(null);
+  const [dropHint, setDropHint] = useState<DropHint | null>(null);
 
   function play(p: ProjectSummary | null, ratio?: number) {
     switching.current = p !== null && ratio !== undefined;
@@ -142,6 +181,112 @@ export default function App() {
   function openInLive() {
     if (selected !== null) api.openInAbleton(selected).catch(toastError("Ouverture impossible"));
   }
+
+  // Glisser-déposer depuis l'explorateur Windows (évènements natifs de Tauri :
+  // le glisser-déposer HTML de la page est désactivé tant que dragDropEnabled est vrai).
+  /** Projet visé : la ligne de l'explorateur sous le curseur, sinon le projet ouvert. */
+  function dropTarget(x: number, y: number): number | null {
+    const el = document.elementFromPoint(x / devicePixelRatio, y / devicePixelRatio);
+    const row = el?.closest<HTMLElement>(".explorer [data-id]");
+    const id = row ? Number(row.dataset.id) : NaN;
+    return id > 0 ? id : selected;
+  }
+
+  function projectName(id: number | null): string {
+    return projects.find((p) => p.id === id)?.name ?? "le projet ouvert";
+  }
+
+  function describeDrop(paths: string[], target: number | null): DropHint {
+    const { audio, folders, sets } = sortDrop(paths);
+    if (folders.length) {
+      return {
+        ok: true,
+        text:
+          folders.length > 1
+            ? `Ajouter ces ${folders.length} dossiers à la bibliothèque et les scanner`
+            : "Ajouter ce dossier à la bibliothèque et le scanner",
+      };
+    }
+    if (audio.length) {
+      return target === null
+        ? { ok: false, text: "Choisis d'abord un projet : le fichier deviendra son aperçu" }
+        : { ok: true, text: `Faire de ce fichier l'aperçu de « ${projectName(target)} »` };
+    }
+    if (sets.length) return { ok: false, text: "Dépose plutôt le dossier du projet" };
+    return { ok: false, text: "Dépose un dossier de projets ou un fichier audio" };
+  }
+
+  async function onDrop(paths: string[], target: number | null) {
+    const { audio, folders } = sortDrop(paths);
+    if (folders.length) {
+      let added = 0;
+      for (const f of folders) {
+        if (roots.some((r) => covered(f, r.path))) continue;
+        try {
+          await api.addRoot(f);
+          added++;
+        } catch (e) {
+          toast(`Impossible d'ajouter ${f} : ${e}`);
+        }
+      }
+      refreshRoots();
+      if (added) toast(added > 1 ? `${added} dossiers ajoutés, scan en cours…` : "Dossier ajouté, scan en cours…");
+      if (scanning) toast("Un scan est déjà en cours : relance-le ensuite");
+      else await scan();
+      return;
+    }
+    if (audio.length && target !== null) {
+      const name = projectName(target);
+      try {
+        await api.importPreview(target, audio[0]);
+        toast(`Nouvel aperçu pour « ${name} »`);
+        // L'aperçu du lecteur et de la liste change : on recharge.
+        if (playing?.id === target) play(null);
+        await refresh();
+        setWorkspaceKey((k) => k + 1);
+      } catch (e) {
+        toast(`Import de l'aperçu impossible : ${e}`);
+      }
+    }
+  }
+
+  const drop = useRef({ describeDrop, onDrop, dropTarget });
+  drop.current = { describeDrop, onDrop, dropTarget };
+
+  useEffect(() => {
+    let paths: string[] = [];
+    let target: number | null = null;
+    let alive = true;
+    let unlisten: (() => void) | undefined;
+    getCurrentWebview()
+      .onDragDropEvent(({ payload: p }) => {
+        const d = drop.current;
+        if (p.type === "enter") {
+          paths = p.paths;
+          target = d.dropTarget(p.position.x, p.position.y);
+          setDropHint(d.describeDrop(paths, target));
+        } else if (p.type === "over") {
+          const t = d.dropTarget(p.position.x, p.position.y);
+          if (t !== target) {
+            target = t;
+            setDropHint(d.describeDrop(paths, target));
+          }
+        } else if (p.type === "drop") {
+          setDropHint(null);
+          d.onDrop(p.paths, d.dropTarget(p.position.x, p.position.y));
+        } else {
+          setDropHint(null);
+        }
+      })
+      .then(
+        (f) => (alive ? (unlisten = f) : f()),
+        () => {},
+      );
+    return () => {
+      alive = false;
+      unlisten?.();
+    };
+  }, []);
 
   useShortcuts({
     togglePlay,
@@ -312,7 +457,7 @@ export default function App() {
       </aside>
 
       {selected !== null ? (
-        <Workspace id={selected} onChange={refresh} onVaultChange={refreshVault} />
+        <Workspace key={workspaceKey} id={selected} onChange={refresh} onVaultChange={refreshVault} />
       ) : (
         <main className="workspace welcome">
           <h2>Bienvenue</h2>
@@ -340,6 +485,12 @@ export default function App() {
             </>
           )}
         </main>
+      )}
+
+      {dropHint && (
+        <div className={`dropzone ${dropHint.ok ? "" : "refused"}`}>
+          <p>{dropHint.text}</p>
+        </div>
       )}
 
       <Toasts />
