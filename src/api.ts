@@ -408,6 +408,8 @@ export const api = {
     invoke<Record<string, string[]>>("doctor_find_candidates", { names }),
   doctorRelink: (projectId: number, relinks: Relink[]) =>
     invoke<RelinkReport>("doctor_relink", { projectId, relinks }),
+  /** Copie dans `Samples/Collected` les samples rangés hors du projet. */
+  doctorCollectSamples: (projectId: number) => invoke<RelinkReport>("doctor_collect_samples", { projectId }),
   doctorPlugins: () => invoke<PluginUse[]>("doctor_plugins"),
 
   /** La croix réduit dans la zone de notification au lieu de quitter. */

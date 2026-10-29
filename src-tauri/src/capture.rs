@@ -172,6 +172,17 @@ impl CaptureLink {
         self.folder.to_string_lossy().replace('\\', "/")
     }
 
+    /// Vrai pour un fichier posé directement dans le dossier des captures :
+    /// l'appli supprime ces fichiers, elle ne doit pas toucher à un autre
+    /// chemin envoyé sur le port (n'importe quel programme du PC peut y écrire).
+    fn in_folder(&self, path: &str) -> bool {
+        let norm = |s: &str| s.replace('\\', "/").to_lowercase();
+        let (folder, path) = (norm(&self.folder_for_max()), norm(path));
+        path.strip_prefix(folder.trim_end_matches('/'))
+            .and_then(|rest| rest.strip_prefix('/'))
+            .is_some_and(|name| !name.is_empty() && !name.contains('/'))
+    }
+
     fn handle(&self, msg: &OscMessage, now: i64) -> Action {
         let a = &msg.args;
         let mut s = self.lock();
@@ -184,6 +195,10 @@ impl CaptureLink {
                 let (Some(n), Some(path), Some(tempo)) = (arg_f64(a, 0), arg_str(a, 1), arg_f64(a, 2)) else {
                     return Action::None;
                 };
+                if !self.in_folder(&path) {
+                    eprintln!("pré-écoute : fichier hors du dossier des captures ignoré ({path})");
+                    return Action::None;
+                }
                 let set = live_window::current_set();
                 s.current = Some(Pending {
                     n: n as i32,
@@ -473,6 +488,18 @@ mod tests {
         assert_eq!(p.capture.positions.len(), 10);
         assert_eq!((p.capture.started_at, p.capture.tempo, p.capture.render), (1_000, 120.0, true));
         assert!(!link.status().recording);
+    }
+
+    #[test]
+    fn ignores_files_outside_the_capture_folder() {
+        let link = CaptureLink { socket: None, folder: "C:\\captures".into(), state: Mutex::default() };
+        for path in ["C:/Users/moi/set.als", "C:/captures/../set.als", "C:/captures/sub/x.wav", "C:/capturesx/a.wav"] {
+            let start = vec![OscType::Int(1), OscType::String(path.into()), OscType::Float(120.0)];
+            link.handle(&msg("/am/start", start), 0);
+            assert!(!link.status().recording, "{path}");
+            assert!(matches!(link.handle(&msg("/am/abort", vec![OscType::Int(1)]), 0), Action::None));
+        }
+        assert!(link.in_folder("c:/Captures/cap-2.wav"), "casse et barres de Windows");
     }
 
     #[test]

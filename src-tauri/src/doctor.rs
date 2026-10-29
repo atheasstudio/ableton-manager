@@ -263,6 +263,74 @@ pub fn relink(
     Ok(RelinkReport { relinked: map.len(), backup, version_id })
 }
 
+/// Sous-dossier du projet où les samples sont rapatriés (celui de « Collect All and Save »).
+const COLLECTED: &str = "Samples/Collected";
+
+/// Premier nom libre dans `dir` pour `name` (« Kick.wav », « Kick 2.wav »…), ou
+/// le fichier déjà là s'il a le même contenu que `src` (rapatriement relancé).
+fn collect_target(dir: &Path, name: &str, src: &Path) -> std::io::Result<PathBuf> {
+    let (stem, ext) = match name.rsplit_once('.') {
+        Some((s, e)) if !s.is_empty() => (s, format!(".{e}")),
+        _ => (name, String::new()),
+    };
+    for i in 1.. {
+        let p = dir.join(if i == 1 { name.to_owned() } else { format!("{stem} {i}{ext}") });
+        if !p.exists() {
+            return Ok(p);
+        }
+        if fs::metadata(&p)?.len() == fs::metadata(src)?.len() && fs::read(&p)? == fs::read(src)? {
+            return Ok(p);
+        }
+    }
+    unreachable!("suite infinie")
+}
+
+/// Copie dans `Samples/Collected` du projet les samples rangés ailleurs (hors
+/// samples intégrés à Live et fichiers introuvables), puis fait pointer le set
+/// vers ces copies avec `relink`. Les originaux ne sont pas touchés.
+pub fn collect_samples(
+    conn: &mut Connection,
+    vault: &Vault,
+    project_id: i64,
+    open: Option<&OpenSet>,
+    now: i64,
+) -> Result<RelinkReport> {
+    let Some((als, folder)) = db::als_path(conn, project_id)? else {
+        return Err(Error::Other("projet introuvable".into()));
+    };
+    if open.is_some_and(|o| previews::matches(&als, o)) {
+        return Err(Error::Other("ferme d'abord ce set dans Live".into()));
+    }
+    let folder = PathBuf::from(&folder);
+    let dir = folder.join(COLLECTED);
+    let set = als_parser::parse_file(Path::new(&als))?;
+    let mut relinks: Vec<Relink> = Vec::new();
+    for s in set.samples.iter().filter(|s| !s.is_builtin()) {
+        let Some(path) = s.path.as_deref() else { continue };
+        let src = Path::new(path);
+        // Déjà dans le projet, ou introuvable (c'est le travail de « Chercher les fichiers »).
+        let in_project = relative_to(&folder, src).is_some_and(|r| !r.starts_with(".."))
+            || (s.is_project_relative() && s.relative_path.as_deref().is_some_and(|r| folder.join(r).is_file()));
+        if in_project || !src.is_file() {
+            continue;
+        }
+        if relinks.iter().any(|r| r.old_path == path) {
+            continue;
+        }
+        fs::create_dir_all(&dir)?;
+        let name = s.file_name().unwrap_or("sample");
+        let dest = collect_target(&dir, name, src)?;
+        if !dest.exists() {
+            fs::copy(src, &dest)?;
+        }
+        relinks.push(Relink { old_path: path.to_owned(), new_path: dest.to_string_lossy().into_owned() });
+    }
+    if relinks.is_empty() {
+        return Ok(RelinkReport { relinked: 0, backup: None, version_id: None });
+    }
+    relink(conn, vault, project_id, &relinks, open, now)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -349,6 +417,29 @@ mod tests {
 
         // Deuxième passage : la copie précédente n'est pas écrasée.
         assert_ne!(backup_path(&als), bak);
+    }
+
+    #[test]
+    fn collects_outside_samples_into_project() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut conn, id, als, wav) = setup(dir.path());
+        fs::write(&als, set_xml(&wav.to_string_lossy().replace('\\', "/"))).unwrap();
+        // Un autre « Kick 01.wav » déjà rapatrié : le nouveau ne doit pas l'écraser.
+        let collected = als.parent().unwrap().join(COLLECTED);
+        fs::create_dir_all(&collected).unwrap();
+        fs::write(collected.join("Kick 01.wav"), b"autre").unwrap();
+        let vault = Vault::new(dir.path().join("vault"));
+
+        let report = collect_samples(&mut conn, &vault, id, None, 2).unwrap();
+        assert_eq!(report.relinked, 1);
+        assert_eq!(fs::read(collected.join("Kick 01.wav")).unwrap(), b"autre");
+        assert_eq!(fs::read(collected.join("Kick 01 2.wav")).unwrap(), b"RIFF");
+        assert!(wav.is_file(), "original gardé");
+        let xml = String::from_utf8(als_parser::read_xml(&fs::read(&als).unwrap()).unwrap()).unwrap();
+        assert!(xml.contains(r#"<RelativePath Value="Samples/Collected/Kick 01 2.wav"/>"#), "{xml}");
+
+        // Relancé : tout est déjà dans le projet.
+        assert_eq!(collect_samples(&mut conn, &vault, id, None, 3).unwrap().relinked, 0);
     }
 
     #[test]

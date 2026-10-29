@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ask, open } from "@tauri-apps/plugin-dialog";
 import { api, Filter, formatAgo, formatDate, formatDuration, ProjectSummary, STATUS_LABELS, Status } from "../api";
-import { ExplorerFilter, formatSpan, toast } from "../api-explorer";
+import { formatSpan } from "../api-explorer";
+import { toast } from "./Toasts";
 import Collections from "./Collections";
 import ProjectCard from "./ProjectCard";
 import ContextMenu, { MenuItem, MenuState } from "./ContextMenu";
@@ -39,8 +40,8 @@ function loadSort(): Sort {
 }
 
 /** Filtres sans contrôle dédié (collections, docteur…), affichés en pastilles. */
-function extraFilters(f: ExplorerFilter): { key: keyof ExplorerFilter; label: string }[] {
-  const out: { key: keyof ExplorerFilter; label: string }[] = [];
+function extraFilters(f: Filter): { key: keyof Filter; label: string }[] {
+  const out: { key: keyof Filter; label: string }[] = [];
   if (f.worked_since) out.push({ key: "worked_since", label: `Travaillé ces ${formatSpan(f.worked_since)}` });
   if (f.not_worked_since)
     out.push({ key: "not_worked_since", label: `Pas travaillé depuis ${formatSpan(f.not_worked_since)}` });
@@ -69,8 +70,6 @@ interface Props {
   onPlay: (p: ProjectSummary) => void;
   /** Après un changement sur le disque (renommage, suppression…). */
   onChanged: () => void;
-  /** Plus utilisé : l'explorateur passe par les notifications (`am:toast`). Gardé pour App. */
-  onMessage: (m: string) => void;
 }
 
 /** Dernier élément d'un chemin Windows ou Unix. */
@@ -84,7 +83,7 @@ export function baseName(path: string): string {
  */
 export default function Explorer(props: Props) {
   const { projects, selected } = props;
-  const filter: ExplorerFilter = props.filter;
+  const filter = props.filter;
   const extras = extraFilters(filter);
   const list = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
@@ -165,7 +164,7 @@ export default function Explorer(props: Props) {
     };
     const filterPlugin = (e: Event) => {
       const plugin = (e as CustomEvent<{ plugin: string }>).detail?.plugin;
-      if (plugin) latest.current.props.onFilter({ ...latest.current.filter, plugin } as ExplorerFilter);
+      if (plugin) latest.current.props.onFilter({ ...latest.current.filter, plugin });
     };
     const applyFilter = (e: Event) => {
       const f = (e as CustomEvent<{ filter: Filter }>).detail?.filter;
@@ -268,8 +267,9 @@ export default function Explorer(props: Props) {
               message: `« ${name} » va partir à la corbeille`,
               commit: async () => {
                 try {
-                  const n = await api.deletePath(path);
-                  toast(`${n} projet${n > 1 ? "s" : ""} envoyé${n > 1 ? "s" : ""} à la corbeille`);
+                  // Les projets versionnés restent dans la bibliothèque (versions gardées) : pas de compte.
+                  await api.deletePath(path);
+                  toast(`« ${name} » envoyé à la corbeille`);
                 } finally {
                   props.onChanged();
                 }
@@ -291,6 +291,21 @@ export default function Explorer(props: Props) {
       items: [
         { label: "▶ Ouvrir dans Live", action: () => api.openInAbleton(p.id) },
         { label: "Ouvrir le dossier", action: () => api.openFolder(p.id) },
+        {
+          label: "Rapatrier les samples dans le projet",
+          action: () =>
+            act(async () => {
+              const r = await api.doctorCollectSamples(p.id);
+              if (r.relinked === 0) return `« ${p.name} » : tous les samples sont déjà dans le projet`;
+              const s = r.relinked > 1 ? "s" : "";
+              const saved = r.backup
+                ? `copie de sécurité : ${r.backup}`
+                : r.version_id
+                  ? "version créée avant la modification"
+                  : "état précédent déjà dans les versions";
+              return `« ${p.name} » : ${r.relinked} sample${s} copié${s} dans Samples/Collected (${saved})`;
+            }),
+        },
         ...STATUS_ORDER.filter((s) => s !== p.status).map((s) => ({
           label: `Statut : ${STATUS_LABELS[s]}`,
           action: () =>

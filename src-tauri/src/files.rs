@@ -119,12 +119,19 @@ fn copy_all(src: &Path, dest: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Envoie un dossier ou un .als à la corbeille et oublie les projets dedans.
+/// Envoie un dossier ou un .als à la corbeille et oublie les projets dedans,
+/// sauf les projets versionnés : leur historique est dans le coffre et doit
+/// survivre à une sortie de la corbeille (comme pour un disque débranché).
 pub fn delete(conn: &Connection, path: &str) -> Result<usize> {
     trash::delete(path).map_err(|e| Error::Other(format!("corbeille : {e}")))?;
+    forget(conn, path)
+}
+
+fn forget(conn: &Connection, path: &str) -> Result<usize> {
     Ok(conn.execute(
-        "DELETE FROM projects WHERE als_path = ?1
-            OR substr(als_path, 1, length(?1) + 1) IN (?1 || '\\', ?1 || '/')",
+        "DELETE FROM projects WHERE (als_path = ?1
+            OR substr(als_path, 1, length(?1) + 1) IN (?1 || '\\', ?1 || '/'))
+            AND id NOT IN (SELECT project_id FROM branches)",
         [path],
     )?)
 }
@@ -168,5 +175,43 @@ mod tests {
         assert_eq!(f, new);
         assert_eq!(a, Path::new(&new).join("A.als").to_string_lossy());
         assert!(Path::new(&a).is_file());
+    }
+
+    #[test]
+    fn delete_keeps_versioned_projects() {
+        let tmp = tempfile::tempdir().unwrap();
+        let conn = crate::db::open_in_memory().unwrap();
+        let mut ids = vec![];
+        for name in ["A", "B"] {
+            let folder = tmp.path().join(format!("{name} Project"));
+            fs::create_dir(&folder).unwrap();
+            let als = folder.join(format!("{name}.als"));
+            fs::write(&als, b"x").unwrap();
+            conn.execute(
+                "INSERT INTO projects (folder, als_path, name, modified_at, scanned_at) VALUES (?1, ?2, ?3, 0, 0)",
+                params![folder.to_string_lossy(), als.to_string_lossy(), name],
+            )
+            .unwrap();
+            ids.push((conn.last_insert_rowid(), folder.to_string_lossy().into_owned()));
+        }
+        // B est versionné.
+        conn.execute(
+            "INSERT INTO branches (project_id, name, folder, als_path, is_main, created_at)
+             VALUES (?1, 'principale', ?2, ?2, 1, 0)",
+            params![ids[1].0, ids[1].1],
+        )
+        .unwrap();
+
+        // `forget` : la partie base de `delete`, sans remplir la vraie corbeille.
+        assert_eq!(forget(&conn, &ids[0].1).unwrap(), 1);
+        assert_eq!(forget(&conn, &ids[1].1).unwrap(), 0, "versions gardées");
+        let left: Vec<i64> = conn
+            .prepare("SELECT id FROM projects")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(left, [ids[1].0]);
     }
 }

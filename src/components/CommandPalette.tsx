@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, ProjectSummary, STATUS_LABELS } from "../api";
-import { apiUi, Collection } from "../api-ui";
+import { api, Collection, ProjectSummary, STATUS_LABELS } from "../api";
 import { emit, SHORTCUTS } from "../shortcuts";
 import "../ui.css";
 
@@ -49,7 +48,7 @@ export default function CommandPalette({ actions, onSelectProject, onClose }: Pr
   useEffect(() => {
     api.searchProjects({}).then(setProjects, () => {});
     // Les collections viennent du back-end (lot C) ; sans elles, la palette marche quand même.
-    apiUi.listCollections().then(setCollections, () => setCollections([]));
+    api.listCollections().then(setCollections, () => setCollections([]));
   }, []);
 
   const entries = useMemo<Entry[]>(() => {

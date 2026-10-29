@@ -13,6 +13,9 @@ pub struct Vault {
     root: PathBuf,
 }
 
+/// Fichier laissé dans un coffre déplacé : le chemin du nouveau.
+const MOVED_TO: &str = "moved-to.txt";
+
 /// Empreinte d'un fichier lu en entier.
 pub fn hash_file(path: &Path) -> io::Result<(String, u64)> {
     let mut hasher = blake3::Hasher::new();
@@ -33,8 +36,23 @@ impl Vault {
         &self.root
     }
 
+    /// Dossier réel : un coffre déplacé laisse dans l'ancien un renvoi vers le
+    /// nouveau, pour les travaux qui avaient pris l'ancien chemin avant le
+    /// déplacement (une sauvegarde de Live en attente du verrou, par exemple).
+    fn base(&self) -> PathBuf {
+        let mut root = self.root.clone();
+        // Quelques sauts au plus : A → B → C. Une boucle n'est jamais suivie à l'infini.
+        for _ in 0..8 {
+            match fs::read_to_string(root.join(MOVED_TO)) {
+                Ok(next) if !next.trim().is_empty() => root = PathBuf::from(next.trim()),
+                _ => break,
+            }
+        }
+        root
+    }
+
     fn objects(&self) -> PathBuf {
-        self.root.join("objects")
+        self.base().join("objects")
     }
 
     pub fn object_path(&self, hash: &str) -> PathBuf {
@@ -101,15 +119,16 @@ impl Vault {
         fs::rename(&tmp, dest)
     }
 
-    /// Supprime les fichiers qui ne sont plus utilisés. Renvoie (fichiers, octets) libérés.
-    pub fn collect_garbage(&self, used: &HashSet<String>) -> io::Result<(usize, u64)> {
+    /// Supprime ceux des `candidates` qui ne sont pas dans `used`. Renvoie
+    /// (fichiers, octets) libérés.
+    pub fn collect_garbage(&self, candidates: &HashSet<String>, used: &HashSet<String>) -> io::Result<(usize, u64)> {
         let (mut count, mut bytes) = (0, 0);
-        for (hash, path, size) in self.list()? {
-            if !used.contains(&hash) {
-                fs::remove_file(path)?;
-                count += 1;
-                bytes += size;
-            }
+        for hash in candidates.difference(used) {
+            let path = self.object_path(hash);
+            let Ok(meta) = fs::metadata(&path) else { continue };
+            fs::remove_file(path)?;
+            count += 1;
+            bytes += meta.len();
         }
         Ok((count, bytes))
     }
@@ -140,6 +159,8 @@ impl Vault {
     /// Déplace tout le contenu du coffre vers `dest` (ex. un disque dédié).
     pub fn move_to(&self, dest: &Path) -> io::Result<Vault> {
         let target = Vault::new(dest);
+        // Retour vers un ancien emplacement : son renvoi ne vaut plus.
+        let _ = fs::remove_file(dest.join(MOVED_TO));
         for (hash, path, _) in self.list()? {
             let to = target.object_path(&hash);
             if to.is_file() {
@@ -155,13 +176,15 @@ impl Vault {
                 fs::remove_file(&path)?;
             }
         }
+        fs::create_dir_all(&self.root)?;
+        fs::write(self.root.join(MOVED_TO), dest.to_string_lossy().as_bytes())?;
         Ok(target)
     }
 
     fn temp_path(&self) -> io::Result<PathBuf> {
         use std::sync::atomic::{AtomicU64, Ordering};
         static COUNTER: AtomicU64 = AtomicU64::new(0);
-        let dir = self.root.join("tmp");
+        let dir = self.base().join("tmp");
         fs::create_dir_all(&dir)?;
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
         Ok(dir.join(format!("{}-{n}", std::process::id())))
@@ -200,9 +223,17 @@ mod tests {
         let other = vault.store_bytes(b"autre").unwrap();
         let moved = vault.move_to(&dir.path().join("F")).unwrap();
         assert!(moved.contains(&h1) && moved.contains(&other));
-        assert_eq!(vault.usage().unwrap().0, 0);
-
-        assert_eq!(moved.collect_garbage(&HashSet::from([h1.clone()])).unwrap(), (1, 5));
-        assert!(moved.contains(&h1) && !moved.contains(&other));
+        assert!(!dir.path().join("coffre/objects").join(&h1[..2]).join(&h1[2..]).exists());
+        // L'ancien chemin, pris avant le déplacement, range dans le nouveau coffre.
+        let late = vault.store_bytes(b"en retard").unwrap();
+        assert!(moved.contains(&late));
+        assert!(!dir.path().join("coffre/objects").join(&late[..2]).exists());
+        // Retour au premier emplacement : pas de boucle de renvois.
+        let back = moved.move_to(&dir.path().join("coffre")).unwrap();
+        assert!(back.contains(&late) && vault.contains(&late));
+        let moved = back.move_to(&dir.path().join("F")).unwrap();
+        let all = HashSet::from([h1.clone(), other.clone(), late.clone()]);
+        assert_eq!(moved.collect_garbage(&all, &HashSet::from([h1.clone(), other.clone()])).unwrap(), (1, 9));
+        assert!(moved.contains(&h1) && moved.contains(&other) && !moved.contains(&late));
     }
 }
