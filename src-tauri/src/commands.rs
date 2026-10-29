@@ -16,7 +16,7 @@ use crate::live_window;
 use crate::previews::{self, PreviewInfo};
 use crate::versions::{self, Branch, Diff, NewBranch, RestoreReport, VersionRow};
 use crate::watcher::SaveWatcher;
-use crate::{notes, organize, scanner, worktime, AppState, VAULT_DIR};
+use crate::{doctor, notes, organize, scanner, tray, worktime, AppState, VAULT_DIR};
 
 /// Erreur renvoyée à l'interface sous forme de texte.
 #[derive(Debug, thiserror::Error)]
@@ -29,6 +29,8 @@ pub enum Error {
     Previews(#[from] previews::Error),
     #[error("{0}")]
     Live(#[from] live::Error),
+    #[error("{0}")]
+    Doctor(#[from] doctor::Error),
     #[error("{0}")]
     Other(String),
 }
@@ -88,7 +90,7 @@ pub async fn scan(app: AppHandle) -> Result<ScanReport> {
         .map_err(|e| Error::Other(e.to_string()))?
 }
 
-fn scan_blocking(app: &AppHandle) -> Result<ScanReport> {
+pub(crate) fn scan_blocking(app: &AppHandle) -> Result<ScanReport> {
     let state = app.state::<AppState>();
     let roots = db::list_roots(&state.db.lock().unwrap())?;
     let mut report = ScanReport {
@@ -844,6 +846,106 @@ pub fn open_project_id(state: State<AppState>) -> Result<Option<i64>> {
         .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(rows.into_iter().find(|(_, als)| live::is_open(&open, &[PathBuf::from(als)])).map(|(id, _)| id))
+}
+
+// ---------- Collections ----------
+
+#[tauri::command]
+pub fn list_collections(state: State<AppState>) -> Result<Vec<db::Collection>> {
+    Ok(db::list_collections(&state.db.lock().unwrap())?)
+}
+
+#[tauri::command]
+pub fn save_collections(state: State<AppState>, collections: Vec<db::Collection>) -> Result<()> {
+    Ok(db::save_collections(&state.db.lock().unwrap(), &collections)?)
+}
+
+// ---------- Docteur de projets ----------
+
+/// Évènement `doctor-progress` pendant les travaux du docteur.
+#[derive(Clone, Serialize)]
+struct DoctorProgress {
+    /// "samples" (vérification des projets) ou "search" (recherche des fichiers).
+    step: &'static str,
+    done: usize,
+    /// 0 si inconnu (recherche dans les dossiers).
+    total: usize,
+}
+
+fn doctor_progress(app: &AppHandle, step: &'static str, done: usize, total: usize) {
+    let _ = app.emit("doctor-progress", DoctorProgress { step, done, total });
+}
+
+#[tauri::command]
+pub async fn doctor_missing_samples(app: AppHandle) -> Result<Vec<doctor::MissingProject>> {
+    blocking(app, |app| {
+        let conn = app.state::<AppState>().open_db()?;
+        Ok(doctor::missing_samples(&conn, |done, total| doctor_progress(app, "samples", done, total))?)
+    })
+    .await
+}
+
+/// Fichiers du même nom dans les dossiers scannés, pour chaque nom demandé.
+#[tauri::command]
+pub async fn doctor_find_candidates(
+    app: AppHandle,
+    names: Vec<String>,
+) -> Result<std::collections::HashMap<String, Vec<String>>> {
+    blocking(app, move |app| {
+        let roots: Vec<PathBuf> = db::list_roots(&app.state::<AppState>().db.lock().unwrap())?
+            .into_iter()
+            .map(|r| PathBuf::from(r.path))
+            .collect();
+        Ok(doctor::find_candidates(&roots, &names, |done| doctor_progress(app, "search", done, 0)))
+    })
+    .await
+}
+
+/// Réécrit le .als du projet pour que ses samples pointent vers les fichiers choisis.
+#[tauri::command]
+pub async fn doctor_relink(
+    app: AppHandle,
+    project_id: i64,
+    relinks: Vec<doctor::Relink>,
+) -> Result<doctor::RelinkReport> {
+    blocking(app, move |app| {
+        let state = app.state::<AppState>();
+        let mut conn = state.open_db()?;
+        let vault = state.vault(&conn)?;
+        let open = live_window::current_set();
+        Ok(doctor::relink(&mut conn, &vault, project_id, &relinks, open.as_ref(), now())?)
+    })
+    .await
+}
+
+#[tauri::command]
+pub fn doctor_plugins(state: State<AppState>) -> Result<Vec<db::PluginUse>> {
+    Ok(db::plugin_inventory(&state.db.lock().unwrap())?)
+}
+
+// ---------- Icône système et démarrage ----------
+
+#[tauri::command]
+pub fn close_to_tray(state: State<AppState>) -> Result<bool> {
+    Ok(tray::close_to_tray(&state.db.lock().unwrap())?)
+}
+
+#[tauri::command]
+pub fn set_close_to_tray(state: State<AppState>, enabled: bool) -> Result<()> {
+    Ok(tray::set_close_to_tray(&state.db.lock().unwrap(), enabled)?)
+}
+
+#[tauri::command]
+pub fn autostart_enabled(app: AppHandle) -> Result<bool> {
+    use tauri_plugin_autostart::ManagerExt;
+    app.autolaunch().is_enabled().map_err(|e| Error::Other(e.to_string()))
+}
+
+#[tauri::command]
+pub fn set_autostart_enabled(app: AppHandle, enabled: bool) -> Result<()> {
+    use tauri_plugin_autostart::ManagerExt;
+    let launcher = app.autolaunch();
+    if enabled { launcher.enable() } else { launcher.disable() }.map_err(|e| Error::Other(e.to_string()))
 }
 
 // ---------- Temps passé ----------

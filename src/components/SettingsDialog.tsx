@@ -33,11 +33,30 @@ export default function SettingsDialog(props: Props) {
   const [deviceMessage, setDeviceMessage] = useState<string | null>(null);
   const [worktimeOn, setWorktimeOn] = useState<boolean | null>(null);
   const [overview, setOverview] = useState<WorktimeOverview | null>(null);
+  const [closeToTray, setCloseToTray] = useState<boolean | null>(null);
+  const [autostart, setAutostart] = useState<boolean | null>(null);
 
   useEffect(() => {
     api.worktimeEnabled().then(setWorktimeOn, () => setWorktimeOn(null));
     api.worktimeOverview().then(setOverview, () => setOverview(null));
+    api.closeToTray().then(setCloseToTray, () => setCloseToTray(null));
+    api.autostartEnabled().then(setAutostart, () => setAutostart(null));
   }, []);
+
+  /** Bascule un réglage booléen, et revient en arrière si l'appel échoue. */
+  async function toggle(
+    on: boolean,
+    set: (v: boolean) => void,
+    save: (v: boolean) => Promise<void>,
+  ) {
+    set(on);
+    try {
+      await save(on);
+    } catch (e) {
+      set(!on);
+      setMessage(`Erreur : ${e}`);
+    }
+  }
 
   async function toggleWorktime(on: boolean) {
     setWorktimeOn(on);
@@ -214,6 +233,28 @@ export default function SettingsDialog(props: Props) {
                     .join(", ")}
             </p>
           )}
+        </section>
+
+        <section>
+          <h3>Fenêtre</h3>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={closeToTray ?? true}
+              disabled={closeToTray === null}
+              onChange={(e) => toggle(e.target.checked, setCloseToTray, api.setCloseToTray)}
+            />{" "}
+            La croix réduit dans la zone de notification (sinon elle quitte)
+          </label>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={autostart ?? false}
+              disabled={autostart === null}
+              onChange={(e) => toggle(e.target.checked, setAutostart, api.setAutostartEnabled)}
+            />{" "}
+            Lancer au démarrage de Windows (dans la zone de notification)
+          </label>
         </section>
       </div>
     </div>

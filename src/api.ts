@@ -56,6 +56,21 @@ export interface Filter {
   tag?: string;
   favorites_only?: boolean;
   show_hidden?: boolean;
+  /** Travaillé dans cette durée (secondes depuis maintenant ; 604800 = 7 jours). */
+  worked_since?: number;
+  /** Pas travaillé dans cette durée (jamais travaillé compris). */
+  not_worked_since?: number;
+  /** .als modifié dans cette durée (secondes). */
+  modified_since?: number;
+  /** Utilise ce plugin (nom exact). */
+  plugin?: string;
+}
+
+/** Filtre enregistré sous un nom (stocké dans les réglages). */
+export interface Collection {
+  id: string;
+  name: string;
+  filter: Filter;
 }
 
 export interface ScanReport {
@@ -256,6 +271,47 @@ export interface WorktimeOverview {
   top: { id: number; name: string; seconds: number }[];
 }
 
+export interface MissingSample {
+  name: string;
+  /** Chemin absolu noté dans le set. */
+  path: string | null;
+  rel_path: string | null;
+  /** Sans chemin absolu (vieux formats), on ne sait pas le réécrire. */
+  relinkable: boolean;
+}
+
+export interface MissingProject {
+  project_id: number;
+  name: string;
+  folder: string;
+  samples: MissingSample[];
+}
+
+export interface Relink {
+  old_path: string;
+  new_path: string;
+}
+
+export interface RelinkReport {
+  relinked: number;
+  /** Copie .bak du set, si le projet n'est pas versionné. */
+  backup: string | null;
+  version_id: number | null;
+}
+
+export interface PluginUse {
+  name: string;
+  projects: number;
+}
+
+/** Évènement Tauri `doctor-progress`. */
+export interface DoctorProgress {
+  step: "samples" | "search";
+  done: number;
+  /** 0 si inconnu. */
+  total: number;
+}
+
 export const api = {
   listRoots: () => invoke<Root[]>("list_roots"),
   addRoot: (path: string) => invoke<number>("add_root", { path }),
@@ -342,6 +398,24 @@ export const api = {
   worktimeOverview: () => invoke<WorktimeOverview>("worktime_overview"),
   worktimeEnabled: () => invoke<boolean>("worktime_enabled"),
   setWorktimeEnabled: (enabled: boolean) => invoke<void>("set_worktime_enabled", { enabled }),
+
+  listCollections: () => invoke<Collection[]>("list_collections"),
+  saveCollections: (collections: Collection[]) => invoke<void>("save_collections", { collections }),
+
+  doctorMissingSamples: () => invoke<MissingProject[]>("doctor_missing_samples"),
+  /** Fichiers du même nom dans les dossiers scannés, par nom demandé. */
+  doctorFindCandidates: (names: string[]) =>
+    invoke<Record<string, string[]>>("doctor_find_candidates", { names }),
+  doctorRelink: (projectId: number, relinks: Relink[]) =>
+    invoke<RelinkReport>("doctor_relink", { projectId, relinks }),
+  doctorPlugins: () => invoke<PluginUse[]>("doctor_plugins"),
+
+  /** La croix réduit dans la zone de notification au lieu de quitter. */
+  closeToTray: () => invoke<boolean>("close_to_tray"),
+  setCloseToTray: (enabled: boolean) => invoke<void>("set_close_to_tray", { enabled }),
+  /** Lancement au démarrage de Windows (fenêtre cachée). */
+  autostartEnabled: () => invoke<boolean>("autostart_enabled"),
+  setAutostartEnabled: (enabled: boolean) => invoke<void>("set_autostart_enabled", { enabled }),
 };
 
 /** Erreur d'installation : la bibliothèque utilisateur de Live n'est pas à sa place habituelle. */
