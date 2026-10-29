@@ -66,3 +66,19 @@ export function formatSpan(seconds: number): string {
   if (days === 1) return "24 h";
   return `${days} jours`;
 }
+
+/** Détail de l'évènement `am:toast` (affiché par src/components/Toasts.tsx). */
+export interface ToastDetail {
+  message: string;
+  /** Bouton « Annuler » : défait une action déjà faite. */
+  undo?: () => void | Promise<void>;
+  /** Action destructrice : exécutée seulement à l'expiration, « Annuler » l'abandonne. */
+  commit?: () => Promise<void>;
+  duration?: number;
+}
+
+export function toast(detail: ToastDetail | string) {
+  window.dispatchEvent(
+    new CustomEvent<ToastDetail>("am:toast", { detail: typeof detail === "string" ? { message: detail } : detail }),
+  );
+}

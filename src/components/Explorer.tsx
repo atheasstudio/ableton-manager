@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ask, open } from "@tauri-apps/plugin-dialog";
 import { api, Filter, formatAgo, formatDate, formatDuration, ProjectSummary, STATUS_LABELS, Status } from "../api";
-import { ExplorerFilter, formatSpan } from "../api-explorer";
+import { ExplorerFilter, formatSpan, toast } from "../api-explorer";
 import Collections from "./Collections";
 import ProjectCard from "./ProjectCard";
 import ContextMenu, { MenuItem, MenuState } from "./ContextMenu";
@@ -66,6 +66,7 @@ interface Props {
   onPlay: (p: ProjectSummary) => void;
   /** Après un changement sur le disque (renommage, suppression…). */
   onChanged: () => void;
+  /** Plus utilisé : l'explorateur passe par les notifications (`am:toast`). Gardé pour App. */
   onMessage: (m: string) => void;
 }
 
@@ -83,6 +84,7 @@ export default function Explorer(props: Props) {
   const filter: ExplorerFilter = props.filter;
   const extras = extraFilters(filter);
   const list = useRef<HTMLDivElement>(null);
+  const search = useRef<HTMLInputElement>(null);
   const [sort, setSortState] = useState<Sort>(loadSort);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -132,6 +134,48 @@ export default function Explorer(props: Props) {
     [groups, collapsed],
   );
 
+  // Évènements des autres parties de l'appli (raccourcis globaux, palette, docteur).
+  const latest = useRef({ props, filter });
+  latest.current = { props, filter };
+  useEffect(() => {
+    const focusSearch = () => {
+      search.current?.focus();
+      search.current?.select();
+    };
+    const toggleFavorite = () => {
+      const { props: pr } = latest.current;
+      const p = pr.projects.find((x) => x.id === pr.selected);
+      if (!p) return;
+      const set = (fav: boolean) => api.setFavorite(p.id, fav).then(() => latest.current.props.onChanged());
+      set(!p.favorite)
+        .then(() =>
+          toast({
+            message: p.favorite ? `« ${p.name} » retiré des favoris` : `« ${p.name} » ajouté aux favoris`,
+            undo: () => set(p.favorite),
+          }),
+        )
+        .catch((e) => toast(`Erreur : ${e}`));
+    };
+    const filterPlugin = (e: Event) => {
+      const plugin = (e as CustomEvent<{ plugin: string }>).detail?.plugin;
+      if (plugin) latest.current.props.onFilter({ ...latest.current.filter, plugin } as ExplorerFilter);
+    };
+    const applyFilter = (e: Event) => {
+      const f = (e as CustomEvent<{ filter: Filter }>).detail?.filter;
+      if (f) latest.current.props.onFilter(f);
+    };
+    const events: [string, EventListener][] = [
+      ["am:focus-search", focusSearch],
+      ["am:toggle-favorite", toggleFavorite],
+      ["am:filter-plugin", filterPlugin],
+      ["am:apply-filter", applyFilter],
+    ];
+    for (const [name, fn] of events) window.addEventListener(name, fn);
+    return () => {
+      for (const [name, fn] of events) window.removeEventListener(name, fn);
+    };
+  }, []);
+
   // Garde le projet choisi visible.
   useEffect(() => {
     list.current?.querySelector(`[data-id="${selected}"]`)?.scrollIntoView({ block: "nearest" });
@@ -146,13 +190,17 @@ export default function Explorer(props: Props) {
     if (order[next] !== undefined) props.onSelect(order[next]);
   }
 
-  /** Lance une action sur le disque, puis rafraîchit la liste. */
-  async function act(work: () => Promise<string | void>) {
+  /** Lance une action, puis rafraîchit la liste. `undo` : action réversible, bouton « Annuler ». */
+  async function act(work: () => Promise<string | void>, undo?: () => Promise<unknown>) {
     try {
       const m = await work();
-      if (m) props.onMessage(m);
+      if (m)
+        toast({
+          message: m,
+          undo: undo && (() => undo().then(() => props.onChanged())),
+        });
     } catch (e) {
-      props.onMessage(`Erreur : ${e}`);
+      toast(`Erreur : ${e}`);
     }
     props.onChanged();
   }
@@ -188,7 +236,14 @@ export default function Explorer(props: Props) {
       },
       {
         label: hidden ? "Ne plus masquer" : `Masquer ${label}`,
-        action: () => act(() => api.setHidden(path, !hidden)),
+        action: () =>
+          act(
+            async () => {
+              await api.setHidden(path, !hidden);
+              return hidden ? `« ${name} » n'est plus masqué` : `« ${name} » masqué`;
+            },
+            () => api.setHidden(path, hidden),
+          ),
       },
       {
         label: `Supprimer ${label}…`,
@@ -200,7 +255,19 @@ export default function Explorer(props: Props) {
             okLabel: "Corbeille",
             cancelLabel: "Annuler",
           });
-          if (ok) act(async () => `${await api.deletePath(path)} projet(s) supprimé(s)`);
+          // Rien n'est supprimé tout de suite : la notification laisse quelques secondes pour annuler.
+          if (ok)
+            toast({
+              message: `« ${name} » va partir à la corbeille`,
+              commit: async () => {
+                try {
+                  const n = await api.deletePath(path);
+                  toast(`${n} projet${n > 1 ? "s" : ""} envoyé${n > 1 ? "s" : ""} à la corbeille`);
+                } finally {
+                  props.onChanged();
+                }
+              },
+            });
         },
       },
     ];
@@ -217,6 +284,28 @@ export default function Explorer(props: Props) {
       items: [
         { label: "▶ Ouvrir dans Live", action: () => api.openInAbleton(p.id) },
         { label: "Ouvrir le dossier", action: () => api.openFolder(p.id) },
+        ...STATUS_ORDER.filter((s) => s !== p.status).map((s) => ({
+          label: `Statut : ${STATUS_LABELS[s]}`,
+          action: () =>
+            act(
+              async () => {
+                await api.setStatus(p.id, s);
+                return `« ${p.name} » : ${STATUS_LABELS[s]}`;
+              },
+              () => api.setStatus(p.id, p.status),
+            ),
+        })),
+        ...p.tags.map((t) => ({
+          label: `Retirer le tag « ${t} »`,
+          action: () =>
+            act(
+              async () => {
+                await api.removeTag(p.id, t);
+                return `Tag « ${t} » retiré de « ${p.name} »`;
+              },
+              () => api.addTag(p.id, t),
+            ),
+        })),
         ...pathItems(path, inGroup ? "ce set" : "ce projet", p.hidden),
       ],
     });
@@ -348,8 +437,9 @@ export default function Explorer(props: Props) {
 
   return (
     <div className="explorer-body" onKeyDown={onKeyDown}>
-      <Collections filter={filter} onFilter={props.onFilter} onMessage={props.onMessage} />
+      <Collections filter={filter} onFilter={props.onFilter} />
       <input
+        ref={search}
         className="search"
         type="search"
         placeholder="Projet, plugin, sample, tag…"
