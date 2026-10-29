@@ -178,6 +178,37 @@ export interface RenderDone {
   error: string | null;
 }
 
+export interface Annotation {
+  id: number;
+  /** Position en beats (noires) depuis la mesure 1. */
+  beat: number;
+  label: string;
+  created_at: number;
+}
+
+export interface Timeline {
+  tempo: number | null;
+  /** [numérateur, dénominateur] */
+  time_sig: [number, number];
+  /** Fin du dernier clip de l'arrangement, en beats. */
+  length: number | null;
+  /** Locators du set, tels que sauvegardés. */
+  locators: { time: number; name: string }[];
+  annotations: Annotation[];
+}
+
+export interface LiveStatus {
+  /** Version du Remote Script, null s'il ne répond pas. */
+  script: number | null;
+  /** Version que l'appli installe. */
+  expected_script: number;
+  /** Set ouvert dans Live, d'après le titre de sa fenêtre. */
+  open_set: string | null;
+  /** Le set ouvert est-il ce projet ? null si on ne peut pas le savoir. */
+  is_open: boolean | null;
+  transport: { playing: boolean; beat: number; tempo: number } | null;
+}
+
 export const api = {
   listRoots: () => invoke<Root[]>("list_roots"),
   addRoot: (path: string) => invoke<number>("add_root", { path }),
@@ -220,6 +251,20 @@ export const api = {
   /** Sans dossier, cherche la bibliothèque utilisateur de Live dans Documents. */
   installDevice: (userLibrary?: string) =>
     invoke<string>("install_device", { userLibrary: userLibrary ?? null }),
+  getTimeline: (projectId: number) => invoke<Timeline>("get_timeline", { projectId }),
+  addAnnotation: (projectId: number, beat: number, label: string) =>
+    invoke<Annotation>("add_annotation", { projectId, beat, label }),
+  updateAnnotation: (id: number, beat: number, label: string) =>
+    invoke<void>("update_annotation", { id, beat, label }),
+  deleteAnnotation: (id: number) => invoke<void>("delete_annotation", { id }),
+  importLocators: (projectId: number) => invoke<number>("import_locators", { projectId }),
+  liveStatus: (projectId: number) => invoke<LiveStatus>("live_status", { projectId }),
+  /** Renvoie vrai si le set a dû être ouvert dans Live. */
+  liveJump: (projectId: number, beat: number, play: boolean) =>
+    invoke<boolean>("live_jump", { projectId, beat, play }),
+  /** Renvoie le dossier d'installation, ou null si la User Library n'est pas trouvée. */
+  installRemoteScript: (userLibrary: string | null) =>
+    invoke<string | null>("install_remote_script", { userLibrary }),
 };
 
 /** Erreur d'installation : la bibliothèque utilisateur de Live n'est pas à sa place habituelle. */

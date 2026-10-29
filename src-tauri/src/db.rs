@@ -135,6 +135,17 @@ CREATE TABLE version_files (
 CREATE INDEX versions_project ON versions(project_id);
 CREATE INDEX version_files_version ON version_files(version_id);
 "#, r#"
+-- Points posés sur la timeline ; position en beats depuis la mesure 1.
+CREATE TABLE annotations (
+    id         INTEGER PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    beat       REAL NOT NULL,
+    label      TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX annotations_project ON annotations(project_id, beat);
+"#, r#"
 -- Dernier aperçu audio du projet (fichier du coffre).
 ALTER TABLE projects ADD COLUMN preview_hash TEXT;
 
@@ -309,10 +320,12 @@ pub fn upsert_project(conn: &mut Connection, p: &ScannedProject, now: i64) -> Re
 }
 
 /// Retire les projets d'une racine dont le .als n'a pas été revu au dernier
-/// scan. Les projets versionnés sont gardés : leur historique est dans le coffre.
+/// scan. Les projets versionnés sont gardés (leur historique est dans le
+/// coffre), comme ceux qui ont des annotations (un disque peut être débranché).
 pub fn remove_missing(conn: &Connection, root_id: i64, scanned_before: i64) -> Result<usize> {
     const MISSING: &str = "SELECT id FROM projects WHERE root_id = ?1 AND scanned_at < ?2
-                               AND id NOT IN (SELECT project_id FROM branches)";
+                               AND id NOT IN (SELECT project_id FROM branches)
+                               AND id NOT IN (SELECT project_id FROM annotations)";
     conn.execute(
         &format!("DELETE FROM search WHERE rowid IN ({MISSING})"),
         params![root_id, scanned_before],
@@ -606,6 +619,7 @@ mod tests {
                 ..Default::default()
             }],
             locators: vec![],
+            arrangement_end: None,
         }
     }
 

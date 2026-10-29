@@ -2,14 +2,17 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
+use crate::annotations::{self, Annotation};
 use crate::capture::{self, CaptureLink, CaptureStatus};
 use crate::db::{self, Filter, ProjectDetail, ProjectSummary, Root};
+use crate::live::{self, Live, Transport};
+use crate::live_window;
 use crate::previews::{self, PreviewInfo};
 use crate::versions::{self, Branch, Diff, NewBranch, RestoreReport, VersionRow};
 use crate::watcher::SaveWatcher;
@@ -24,6 +27,8 @@ pub enum Error {
     Versions(#[from] versions::Error),
     #[error("{0}")]
     Previews(#[from] previews::Error),
+    #[error("{0}")]
+    Live(#[from] live::Error),
     #[error("{0}")]
     Other(String),
 }
@@ -422,4 +427,216 @@ pub fn install_device(app: AppHandle, user_library: Option<String>) -> Result<St
     let device = capture::install_device(&capture::device_dir(&library))
         .map_err(|e| Error::Other(format!("installation du device : {e}")))?;
     Ok(device.to_string_lossy().into_owned())
+}
+
+// ---------- Timeline et pont Ableton ----------
+
+/// Lance un travail bloquant (lecture d'un .als, attente de Live) hors du fil
+/// de l'interface.
+async fn blocking<T: Send + 'static>(
+    app: AppHandle,
+    work: impl FnOnce(&AppHandle) -> Result<T> + Send + 'static,
+) -> Result<T> {
+    tauri::async_runtime::spawn_blocking(move || work(&app))
+        .await
+        .map_err(|e| Error::Other(e.to_string()))?
+}
+
+#[derive(Serialize)]
+pub struct Timeline {
+    pub tempo: Option<f64>,
+    /// (numérateur, dénominateur)
+    pub time_sig: (u32, u32),
+    /// Fin du dernier clip de l'arrangement, en beats.
+    pub length: Option<f64>,
+    /// Locators du set, tels que sauvegardés.
+    pub locators: Vec<als_parser::Locator>,
+    pub annotations: Vec<Annotation>,
+}
+
+fn parse_time_sig(s: &str) -> Option<(u32, u32)> {
+    let (n, d) = s.split_once('/')?;
+    Some((n.trim().parse().ok()?, d.trim().parse().ok()?))
+}
+
+/// Tempo, signature, durée et locators sont relus dans le .als (le set a pu
+/// changer depuis le dernier scan) ; à défaut, on prend ceux de la base.
+#[tauri::command]
+pub async fn get_timeline(app: AppHandle, project_id: i64) -> Result<Timeline> {
+    blocking(app, move |app| {
+        let state = app.state::<AppState>();
+        let (project, annotations) = {
+            let conn = state.db.lock().unwrap();
+            (db::get_project(&conn, project_id)?, annotations::list(&conn, project_id)?)
+        };
+        let project = project.ok_or_else(|| Error::Other("projet introuvable".into()))?;
+        let set = als_parser::parse_file(&project.als_path).ok();
+        Ok(Timeline {
+            tempo: set.as_ref().and_then(|s| s.tempo).or(project.summary.tempo),
+            time_sig: set
+                .as_ref()
+                .and_then(|s| s.time_signature)
+                .or_else(|| project.time_sig.as_deref().and_then(parse_time_sig))
+                .unwrap_or((4, 4)),
+            length: set.as_ref().and_then(|s| s.arrangement_end),
+            locators: set.map(|s| s.locators).unwrap_or_default(),
+            annotations,
+        })
+    })
+    .await
+}
+
+#[tauri::command]
+pub fn add_annotation(
+    state: State<AppState>,
+    project_id: i64,
+    beat: f64,
+    label: String,
+) -> Result<Annotation> {
+    Ok(annotations::add(&state.db.lock().unwrap(), project_id, beat, &label, now())?)
+}
+
+#[tauri::command]
+pub fn update_annotation(state: State<AppState>, id: i64, beat: f64, label: String) -> Result<()> {
+    Ok(annotations::update(&state.db.lock().unwrap(), id, beat, &label)?)
+}
+
+#[tauri::command]
+pub fn delete_annotation(state: State<AppState>, id: i64) -> Result<()> {
+    Ok(annotations::delete(&state.db.lock().unwrap(), id)?)
+}
+
+/// Crée une annotation par locator du set. Renvoie le nombre créé.
+#[tauri::command]
+pub async fn import_locators(app: AppHandle, project_id: i64) -> Result<usize> {
+    blocking(app, move |app| {
+        let state = app.state::<AppState>();
+        let (als, _) = paths(&state, project_id)?;
+        let set = als_parser::parse_file(&als).map_err(|e| Error::Other(e.to_string()))?;
+        let mut conn = state.db.lock().unwrap();
+        let created = annotations::import_locators(&mut conn, project_id, &set.locators, now())?;
+        Ok(created)
+    })
+    .await
+}
+
+/// .als dont l'ouverture dans Live compte comme « le bon projet » : le projet
+/// et ses branches. Le premier est celui qu'on ouvre.
+fn project_sets(state: &State<AppState>, project_id: i64) -> Result<Vec<PathBuf>> {
+    let (als, _) = paths(state, project_id)?;
+    let conn = state.db.lock().unwrap();
+    let mut sets = vec![PathBuf::from(als)];
+    let branches = versions::branches(&conn, project_id)?;
+    sets.extend(branches.into_iter().map(|b| PathBuf::from(b.als_path)));
+    Ok(sets)
+}
+
+#[derive(Serialize)]
+pub struct LiveStatus {
+    /// Version du script, `None` s'il ne répond pas.
+    pub script: Option<i32>,
+    /// Version que l'appli sait installer.
+    pub expected_script: i32,
+    /// Set ouvert dans Live, d'après le titre de sa fenêtre.
+    pub open_set: Option<String>,
+    /// Le set ouvert est-il ce projet ? `None` si on ne peut pas le savoir.
+    pub is_open: Option<bool>,
+    pub transport: Option<Transport>,
+}
+
+#[tauri::command]
+pub async fn live_status(app: AppHandle, project_id: i64) -> Result<LiveStatus> {
+    blocking(app, move |app| {
+        let sets = project_sets(&app.state::<AppState>(), project_id)?;
+        let live = app.state::<Live>();
+        let open = live_window::current_set();
+        let script = live.script_version();
+        Ok(LiveStatus {
+            script,
+            expected_script: live::SCRIPT_VERSION,
+            is_open: open.as_ref().map(|o| live::is_open(o, &sets)),
+            open_set: open.map(|o| o.set),
+            transport: script.and_then(|_| live.transport().ok()),
+        })
+    })
+    .await
+}
+
+/// Temps laissé à Live pour ouvrir le set (il peut d'abord demander s'il faut
+/// enregistrer le set en cours, ou devoir démarrer).
+const OPEN_TIMEOUT: Duration = Duration::from_secs(180);
+
+/// Envoie Live à une position (en beats). Si un autre set est ouvert, ou si
+/// Live est fermé, ouvre d'abord le projet et attend qu'il soit chargé.
+/// Renvoie vrai si le set a dû être ouvert.
+#[tauri::command]
+pub async fn live_jump(app: AppHandle, project_id: i64, beat: f64, play: bool) -> Result<bool> {
+    blocking(app, move |app| {
+        let sets = project_sets(&app.state::<AppState>(), project_id)?;
+        let live = app.state::<Live>();
+        let ready = || {
+            live.script_version().is_some()
+                // Titre illisible : on fait confiance au script.
+                && live_window::current_set().is_none_or(|o| live::is_open(&o, &sets))
+        };
+
+        let opened = !ready();
+        if opened {
+            app.opener()
+                .open_path(sets[0].to_string_lossy(), None::<&str>)
+                .map_err(|e| Error::Other(e.to_string()))?;
+            let started = Instant::now();
+            while !ready() {
+                if started.elapsed() > OPEN_TIMEOUT {
+                    return Err(Error::Other("Live n'a pas ouvert le set à temps".into()));
+                }
+                std::thread::sleep(Duration::from_millis(500));
+            }
+            // Le script redémarre avec chaque set : on laisse Live finir de charger.
+            std::thread::sleep(Duration::from_secs(1));
+        }
+        live.jump(beat, play)?;
+        Ok(opened)
+    })
+    .await
+}
+
+/// Copie le Remote Script dans la User Library de Live. Sans dossier donné,
+/// prend celle des Documents ; renvoie `None` si elle n'y est pas.
+#[tauri::command]
+pub fn install_remote_script(
+    app: AppHandle,
+    user_library: Option<String>,
+) -> Result<Option<String>> {
+    let dir = match user_library {
+        Some(chosen) => {
+            let chosen = PathBuf::from(chosen);
+            if chosen.file_name().is_some_and(|n| n == "Remote Scripts") {
+                chosen
+            } else if chosen.join("User Library").is_dir() {
+                chosen.join("User Library").join("Remote Scripts")
+            } else {
+                chosen.join("Remote Scripts")
+            }
+        }
+        None => {
+            let docs = app.path().document_dir().map_err(|e| Error::Other(e.to_string()))?;
+            let library = docs.join("Ableton").join("User Library");
+            if !library.is_dir() {
+                return Ok(None);
+            }
+            library.join("Remote Scripts")
+        }
+    }
+    .join("AbletonManager");
+
+    let write = || -> std::io::Result<()> {
+        std::fs::create_dir_all(&dir)?;
+        for (name, content) in live::SCRIPT_FILES {
+            std::fs::write(dir.join(name), content)?;
+        }
+        Ok(())
+    };
+    write().map_err(|e| Error::Other(format!("installation du script : {e}")))?;
+    Ok(Some(dir.to_string_lossy().into_owned()))
 }

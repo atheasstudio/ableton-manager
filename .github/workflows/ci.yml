@@ -19,3 +19,4 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: cargo test --workspace
+      - run: python remote-script/tests/test_remote_script.py

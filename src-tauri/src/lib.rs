@@ -1,7 +1,9 @@
+mod annotations;
 mod audio;
 mod capture;
 mod commands;
 mod db;
+mod live;
 mod live_window;
 mod previews;
 mod scanner;
@@ -55,6 +57,7 @@ pub fn run() {
             app.manage(AppState { db: Mutex::new(conn), db_path, data_dir: dir.clone() });
             app.manage(watcher::SaveWatcher::start(app.handle().clone()));
             app.manage(capture::CaptureLink::start(app.handle().clone(), dir.join("captures")));
+            app.manage(live::Live::new());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -92,6 +95,14 @@ pub fn run() {
             commands::render_preview,
             commands::cancel_render,
             commands::install_device,
+            commands::get_timeline,
+            commands::add_annotation,
+            commands::update_annotation,
+            commands::delete_annotation,
+            commands::import_locators,
+            commands::live_status,
+            commands::live_jump,
+            commands::install_remote_script,
         ])
         .run(tauri::generate_context!())
         .expect("erreur au lancement de l'application");
