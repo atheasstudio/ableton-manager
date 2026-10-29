@@ -49,6 +49,9 @@ function extraFilters(f: ExplorerFilter): { key: keyof ExplorerFilter; label: st
   return out;
 }
 
+/** Cible « nouveau tag » du glisser (une valeur qu'aucun vrai tag ne peut avoir). */
+const NEW_TAG = "__am-nouveau-tag__";
+
 function parentDir(path: string): string {
   const i = Math.max(path.lastIndexOf("\\"), path.lastIndexOf("/"));
   return i > 0 ? path.slice(0, i) : path;
@@ -89,6 +92,10 @@ export default function Explorer(props: Props) {
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [view, setViewState] = useState<View>(loadView);
+  /** Projet glissé vers un tag, à la souris (pas de glisser-déposer HTML5 : cassé dans la webview Windows). */
+  const [drag, setDrag] = useState<{ project: ProjectSummary; x: number; y: number; over: string | null } | null>(
+    null,
+  );
   const setView = (v: View) => {
     setViewState(v);
     try {
@@ -323,9 +330,72 @@ export default function Explorer(props: Props) {
     });
   }
 
+  /** Ajoute un tag (glisser sur un tag), annulable. */
+  function dropOnTag(p: ProjectSummary, tag: string) {
+    const t = tag.trim();
+    if (!t) return;
+    if (p.tags.includes(t)) return toast(`« ${p.name} » a déjà le tag « ${t} »`);
+    act(
+      async () => {
+        await api.addTag(p.id, t);
+        return `Tag « ${t} » ajouté à « ${p.name} »`;
+      },
+      () => api.removeTag(p.id, t),
+    );
+  }
+
+  /** Début possible d'un glisser : il démarre après quelques pixels, sinon c'est un simple clic. */
+  function onItemPointerDown(e: React.PointerEvent, p: ProjectSummary) {
+    if (e.button !== 0 || (e.target as HTMLElement).closest("button")) return;
+    const x0 = e.clientX;
+    const y0 = e.clientY;
+    let dragging = false;
+    let over: string | null = null;
+
+    const move = (ev: PointerEvent) => {
+      if (!dragging) {
+        if (Math.hypot(ev.clientX - x0, ev.clientY - y0) < 6) return;
+        dragging = true;
+        document.body.classList.add("am-dragging");
+      }
+      const target = document.elementFromPoint(ev.clientX, ev.clientY)?.closest<HTMLElement>("[data-drop-tag]");
+      over = target ? (target.dataset.dropTag ?? null) : null;
+      setDrag({ project: p, x: ev.clientX, y: ev.clientY, over });
+    };
+    const end = (ev: Event) => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+      window.removeEventListener("keydown", key, true);
+      if (!dragging) return;
+      document.body.classList.remove("am-dragging");
+      setDrag(null);
+      // Le clic qui suit le relâcher ne doit pas sélectionner autre chose.
+      const stop = (c: Event) => c.stopPropagation();
+      window.addEventListener("click", stop, { capture: true, once: true });
+      setTimeout(() => window.removeEventListener("click", stop, { capture: true }), 0);
+      if (ev.type !== "pointerup" || over === null) return;
+      if (over === NEW_TAG) {
+        const t = window.prompt(`Nouveau tag pour « ${p.name} » :`);
+        if (t) dropOnTag(p, t);
+      } else dropOnTag(p, over);
+    };
+    const key = (ev: KeyboardEvent) => {
+      if (ev.key !== "Escape") return;
+      ev.stopPropagation();
+      over = null;
+      end(new Event("pointercancel"));
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+    window.addEventListener("keydown", key, true);
+  }
+
   /** Gestionnaires communs aux lignes et aux cartes. */
   const itemProps = (p: ProjectSummary, inGroup: boolean) => ({
     "data-id": p.id,
+    onPointerDown: (e: React.PointerEvent) => onItemPointerDown(e, p),
     onClick: () => props.onSelect(p.id),
     onContextMenu: (e: React.MouseEvent) => projectMenu(e, p, inGroup),
     title: p.folder,
@@ -532,8 +602,33 @@ export default function Explorer(props: Props) {
           : groups.map(([folder, ps]) => (ps.length === 1 ? row(ps[0], false) : groupBlock(folder, ps)))}
       </div>
       {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
+      {drag && (
+        <>
+          <div className="tag-drop">
+            <small>Dépose « {drag.project.name} » sur un tag (Échap pour annuler)</small>
+            <div className="tag-drop-list">
+              {props.tags.map((t) => (
+                <span
+                  key={t}
+                  data-drop-tag={t}
+                  className={`tag-target ${drag.over === t ? "over" : ""} ${drag.project.tags.includes(t) ? "has" : ""}`}
+                  title={drag.project.tags.includes(t) ? "Déjà sur ce projet" : undefined}
+                >
+                  {t}
+                </span>
+              ))}
+              <span data-drop-tag={NEW_TAG} className={`tag-target new ${drag.over === NEW_TAG ? "over" : ""}`}>
+                + Nouveau tag…
+              </span>
+            </div>
+          </div>
+          <div className="drag-ghost" style={{ left: drag.x + 12, top: drag.y + 8 }}>
+            {drag.project.name}
+          </div>
+        </>
+      )}
       <small className="ecount">
-        {projects.length} projet{projects.length > 1 ? "s" : ""} · ↑ ↓ pour naviguer · clic droit : actions
+        {projects.length} projet{projects.length > 1 ? "s" : ""} · ↑ ↓ pour naviguer · clic droit : actions · glisser sur un tag
       </small>
     </div>
   );
