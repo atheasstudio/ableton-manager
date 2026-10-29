@@ -1,9 +1,12 @@
 mod annotations;
+mod audio;
+mod capture;
 mod commands;
 mod db;
 mod live;
 mod live_window;
 mod notes;
+mod previews;
 mod scanner;
 mod vault;
 mod versions;
@@ -52,8 +55,9 @@ pub fn run() {
             std::fs::create_dir_all(&dir)?;
             let db_path = dir.join("library.db");
             let conn = db::open(&db_path)?;
-            app.manage(AppState { db: Mutex::new(conn), db_path, data_dir: dir });
+            app.manage(AppState { db: Mutex::new(conn), db_path, data_dir: dir.clone() });
             app.manage(watcher::SaveWatcher::start(app.handle().clone()));
+            app.manage(capture::CaptureLink::start(app.handle().clone(), dir.join("captures")));
             app.manage(live::Live::new());
             Ok(())
         })
@@ -84,6 +88,14 @@ pub fn run() {
             commands::open_branch_folder,
             commands::vault_info,
             commands::set_vault_dir,
+            commands::get_preview,
+            commands::preview_audio,
+            commands::find_bounce,
+            commands::import_preview,
+            commands::capture_status,
+            commands::render_preview,
+            commands::cancel_render,
+            commands::install_device,
             commands::get_timeline,
             commands::add_annotation,
             commands::update_annotation,

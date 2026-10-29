@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, Branch, Diff, formatDateTime, Version, versionLabel } from "../api";
+import PreviewPlayer from "./PreviewPlayer";
 import { laneColor } from "./VersionGraph";
 
 interface Props {
@@ -7,26 +8,35 @@ interface Props {
   a: Version;
   b: Version;
   branches: Branch[];
+  timeSig: string | null;
   onClose: () => void;
 }
 
 /**
- * Emplacement de l'aperçu audio d'une version. La pré-écoute (capture Max for
- * Live, lecteur et forme d'onde) viendra le remplir : `preview_hash` pointe
- * alors vers le fichier dans le coffre.
+ * Aperçu d'une version. Les deux lecteurs partagent la position : passer de
+ * l'un à l'autre reprend au même endroit du morceau, pour comparer à l'écoute.
  */
-function PreviewSlot({ version }: { version: Version }) {
+function PreviewSlot({
+  version,
+  timeSig,
+  shared,
+}: {
+  version: Version;
+  timeSig: string | null;
+  shared: { current: number };
+}) {
+  if (!version.preview_hash) {
+    return <div className="preview-slot">Pas d'aperçu pour cette version</div>;
+  }
   return (
-    <div className="preview-slot">
-      <button className="icon" disabled aria-label="Écouter">
-        ▶
-      </button>
-      <span>
-        {version.preview_hash
-          ? "Aperçu enregistré"
-          : "Pas encore d'aperçu : arrive avec la pré-écoute"}
-      </span>
-    </div>
+    <PreviewPlayer
+      hash={version.preview_hash}
+      tempo={version.tempo}
+      timeSig={timeSig}
+      startAt={() => shared.current}
+      onTime={(t) => (shared.current = t)}
+      compact
+    />
   );
 }
 
@@ -72,7 +82,8 @@ function Changed<T>({
   );
 }
 
-export default function CompareDialog({ a, b, branches, onClose }: Props) {
+export default function CompareDialog({ a, b, branches, timeSig, onClose }: Props) {
+  const shared = useRef(0);
   const [diff, setDiff] = useState<Diff | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -117,7 +128,7 @@ export default function CompareDialog({ a, b, branches, onClose }: Props) {
                 <span style={{ color: laneColor(branches, v.branch_id) }}>{branchName(v)}</span> ·{" "}
                 {formatDateTime(v.created_at)}
               </small>
-              <PreviewSlot version={v} />
+              <PreviewSlot version={v} timeSig={timeSig} shared={shared} />
             </div>
           ))}
         </div>

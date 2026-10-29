@@ -3,15 +3,18 @@ import { listen } from "@tauri-apps/api/event";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { api, formatDateTime, formatSize, TreeNote, VersionsView, versionLabel } from "../api";
 import CompareDialog from "./CompareDialog";
+import PreviewPlayer from "./PreviewPlayer";
 import VersionGraph, { laneColor } from "./VersionGraph";
 
 interface Props {
   projectId: number;
+  /** Signature du projet, pour afficher les mesures des aperçus. */
+  timeSig: string | null;
   /** Appelé quand le coffre change de taille. */
   onVaultChange: () => void;
 }
 
-export default function VersionsTab({ projectId, onVaultChange }: Props) {
+export default function VersionsTab({ projectId, timeSig, onVaultChange }: Props) {
   const [view, setView] = useState<VersionsView | null>(null);
   const [notes, setNotes] = useState<TreeNote[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
@@ -251,6 +254,17 @@ export default function VersionsTab({ projectId, onVaultChange }: Props) {
                   {version.tempo && ` · ${version.tempo} BPM`} · {version.files} audio(s)
                 </small>
                 {version.name && <small>{version.auto_name}</small>}
+                {version.preview_hash ? (
+                  <PreviewPlayer
+                    hash={version.preview_hash}
+                    tempo={version.tempo}
+                    timeSig={timeSig}
+                  />
+                ) : (
+                  <small>
+                    Pas d'aperçu : le set n'a pas été écouté depuis la version précédente.
+                  </small>
+                )}
                 <div className="actions">
                   <button disabled={!!busy} onClick={restore}>
                     Restaurer
@@ -299,6 +313,7 @@ export default function VersionsTab({ projectId, onVaultChange }: Props) {
           a={pair[0]}
           b={pair[1]}
           branches={view.branches}
+          timeSig={timeSig}
           onClose={() => setComparing(false)}
         />
       )}
