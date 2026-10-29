@@ -209,6 +209,18 @@ export interface LiveStatus {
   transport: { playing: boolean; beat: number; tempo: number } | null;
 }
 
+/** Note posée dans l'espace de l'arbre des versions. */
+export interface TreeNote {
+  id: number;
+  /** Version à laquelle la note est accrochée (elle la suit). */
+  version_id: number | null;
+  /** Décalage par rapport à la version, ou position si la note est libre. */
+  x: number;
+  y: number;
+  text: string;
+  created_at: number;
+}
+
 export const api = {
   listRoots: () => invoke<Root[]>("list_roots"),
   addRoot: (path: string) => invoke<number>("add_root", { path }),
@@ -265,6 +277,18 @@ export const api = {
   /** Renvoie le dossier d'installation, ou null si la User Library n'est pas trouvée. */
   installRemoteScript: (userLibrary: string | null) =>
     invoke<string | null>("install_remote_script", { userLibrary }),
+  listTreeNotes: (projectId: number) => invoke<TreeNote[]>("list_tree_notes", { projectId }),
+  addTreeNote: (projectId: number, versionId: number | null, x: number, y: number, text = "") =>
+    invoke<TreeNote>("add_tree_note", { projectId, versionId, x, y, text }),
+  updateTreeNote: (n: TreeNote) =>
+    invoke<void>("update_tree_note", {
+      id: n.id,
+      versionId: n.version_id,
+      x: n.x,
+      y: n.y,
+      text: n.text,
+    }),
+  deleteTreeNote: (id: number) => invoke<void>("delete_tree_note", { id }),
 };
 
 /** Erreur d'installation : la bibliothèque utilisateur de Live n'est pas à sa place habituelle. */

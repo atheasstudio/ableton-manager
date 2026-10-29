@@ -16,7 +16,7 @@ use crate::live_window;
 use crate::previews::{self, PreviewInfo};
 use crate::versions::{self, Branch, Diff, NewBranch, RestoreReport, VersionRow};
 use crate::watcher::SaveWatcher;
-use crate::{scanner, AppState, VAULT_DIR};
+use crate::{notes, scanner, AppState, VAULT_DIR};
 
 /// Erreur renvoyée à l'interface sous forme de texte.
 #[derive(Debug, thiserror::Error)]
@@ -639,4 +639,40 @@ pub fn install_remote_script(
     };
     write().map_err(|e| Error::Other(format!("installation du script : {e}")))?;
     Ok(Some(dir.to_string_lossy().into_owned()))
+}
+
+// ---------- Notes dans l'arbre des versions ----------
+
+#[tauri::command]
+pub fn list_tree_notes(state: State<AppState>, project_id: i64) -> Result<Vec<notes::TreeNote>> {
+    Ok(notes::list(&state.db.lock().unwrap(), project_id)?)
+}
+
+#[tauri::command]
+pub fn add_tree_note(
+    state: State<AppState>,
+    project_id: i64,
+    version_id: Option<i64>,
+    x: f64,
+    y: f64,
+    text: String,
+) -> Result<notes::TreeNote> {
+    Ok(notes::add(&state.db.lock().unwrap(), project_id, version_id, x, y, &text, now())?)
+}
+
+#[tauri::command]
+pub fn update_tree_note(
+    state: State<AppState>,
+    id: i64,
+    version_id: Option<i64>,
+    x: f64,
+    y: f64,
+    text: String,
+) -> Result<()> {
+    Ok(notes::update(&state.db.lock().unwrap(), id, version_id, x, y, &text)?)
+}
+
+#[tauri::command]
+pub fn delete_tree_note(state: State<AppState>, id: i64) -> Result<()> {
+    Ok(notes::delete(&state.db.lock().unwrap(), id)?)
 }

@@ -49,7 +49,8 @@ Le device n'enregistre que si l'appli tourne : il parle à l'appli en OSC sur `1
 - Chaque version reçoit un nom automatique qui résume les changements (pistes, plugins, tempo, audios). On peut la renommer.
 - Restaurer : l'état actuel est sauvegardé d'abord, puis le set revient à la version choisie, ce qui crée une nouvelle version. Les audios effacés ou modifiés sont remis en place.
 - Nouvelle branche : recrée un dossier complet `<projet> - <branche> Project` à côté de l'original. Ses sauvegardes alimentent la branche.
-- Arbre (une colonne par branche) et comparaison de deux versions, à l'écoute aussi.
+- Arbre en 2D : les versions sont des nœuds, avec une ligne par branche ; on glisse pour se déplacer, on zoome à la molette, et il y a un mode plein écran. Notes libres posées dans l'espace (double-clic) ou accrochées à une version (lâcher la note dessus). Maj + clic sur deux versions pour les comparer.
+- Comparaison de deux versions, à l'écoute aussi.
 - Supprimer une version rattache ses enfants à sa parente et libère les fichiers que plus rien n'utilise.
 
 ## Développer

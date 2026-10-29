@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { ask } from "@tauri-apps/plugin-dialog";
-import { api, formatDateTime, formatSize, VersionsView, versionLabel } from "../api";
+import { api, formatDateTime, formatSize, TreeNote, VersionsView, versionLabel } from "../api";
 import CompareDialog from "./CompareDialog";
 import PreviewPlayer from "./PreviewPlayer";
-import VersionTree, { laneColor } from "./VersionTree";
+import VersionGraph, { laneColor } from "./VersionGraph";
 
 interface Props {
   projectId: number;
@@ -16,6 +16,7 @@ interface Props {
 
 export default function VersionsTab({ projectId, timeSig, onVaultChange }: Props) {
   const [view, setView] = useState<VersionsView | null>(null);
+  const [notes, setNotes] = useState<TreeNote[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
   const [checked, setChecked] = useState<number[]>([]);
   const [comparing, setComparing] = useState(false);
@@ -27,6 +28,7 @@ export default function VersionsTab({ projectId, timeSig, onVaultChange }: Props
 
   async function load() {
     setView(await api.getVersions(projectId));
+    setNotes(await api.listTreeNotes(projectId));
   }
 
   useEffect(() => {
@@ -196,90 +198,114 @@ export default function VersionsTab({ projectId, timeSig, onVaultChange }: Props
         ))}
       </ul>
 
-      {busy && <p className="message">{busy}</p>}
-      {message && <p className="message">{message}</p>}
-
-      {checked.length === 2 && (
-        <button className="primary" onClick={() => setComparing(true)}>
-          Comparer les 2 versions cochées
-        </button>
-      )}
-
-      {version && (
-        <div className="version-detail">
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              api.renameVersion(version.id, rename).then(load);
-            }}
-          >
-            <input
-              value={rename}
-              placeholder={version.auto_name}
-              onChange={(e) => setRename(e.target.value)}
-              onBlur={() =>
-                rename !== (version.name ?? "") && api.renameVersion(version.id, rename).then(load)
-              }
-              title="Renommer la version"
-            />
-          </form>
-          <small>
-            {formatDateTime(version.created_at)} · {branchOf(version.branch_id)?.name}
-            {version.tempo && ` · ${version.tempo} BPM`} · {version.files} audio(s)
-          </small>
-          {version.name && <small>{version.auto_name}</small>}
-          {version.preview_hash ? (
-            <PreviewPlayer hash={version.preview_hash} tempo={version.tempo} timeSig={timeSig} />
-          ) : (
-            <small>Pas d'aperçu : le set n'a pas été écouté depuis la version précédente.</small>
-          )}
-          <div className="actions">
-            <button disabled={!!busy} onClick={restore}>
-              Restaurer
-            </button>
-            <button
-              disabled={!!busy}
-              onClick={() => setBranchName(branchName === null ? "" : null)}
-            >
-              Nouvelle branche…
-            </button>
-            {version.parent_id !== null && (
-              <button
-                onClick={() => {
-                  setChecked([version.parent_id!, version.id]);
-                  setComparing(true);
-                }}
-              >
-                Comparer à la précédente
-              </button>
-            )}
-            <button className="danger" disabled={!!busy} onClick={remove}>
-              Supprimer
-            </button>
-          </div>
-          {branchName !== null && (
-            <form className="branch-form" onSubmit={createBranch}>
-              <input
-                autoFocus
-                placeholder="Nom : version club, radio edit…"
-                value={branchName}
-                onChange={(e) => setBranchName(e.target.value)}
-              />
-              <button className="primary" disabled={!branchName.trim() || !!busy}>
-                Créer
-              </button>
-            </form>
-          )}
-        </div>
-      )}
-
-      <VersionTree
+      <VersionGraph
         branches={view.branches}
         versions={view.versions}
+        notes={notes}
         selected={selected}
         onSelect={setSelected}
         checked={checked}
-        onCheck={toggleCheck}
+        onToggleCheck={toggleCheck}
+        onAddNote={async (versionId, x, y) => {
+          const note = await api.addTreeNote(projectId, versionId, x, y);
+          setNotes((all) => [...all, note]);
+          return note;
+        }}
+        onUpdateNote={(note) => {
+          setNotes((all) => all.map((n) => (n.id === note.id ? note : n)));
+          api.updateTreeNote(note);
+        }}
+        onDeleteNote={(id) => {
+          setNotes((all) => all.filter((n) => n.id !== id));
+          api.deleteTreeNote(id);
+        }}
+        overlay={
+          <>
+            {busy && <p className="message">{busy}</p>}
+            {message && <p className="message">{message}</p>}
+
+            {checked.length === 2 && (
+              <button className="primary" onClick={() => setComparing(true)}>
+                Comparer les 2 versions cochées
+              </button>
+            )}
+
+            {version && (
+              <div className="version-detail">
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    api.renameVersion(version.id, rename).then(load);
+                  }}
+                >
+                  <input
+                    value={rename}
+                    placeholder={version.auto_name}
+                    onChange={(e) => setRename(e.target.value)}
+                    onBlur={() =>
+                      rename !== (version.name ?? "") &&
+                      api.renameVersion(version.id, rename).then(load)
+                    }
+                    title="Renommer la version"
+                  />
+                </form>
+                <small>
+                  {formatDateTime(version.created_at)} · {branchOf(version.branch_id)?.name}
+                  {version.tempo && ` · ${version.tempo} BPM`} · {version.files} audio(s)
+                </small>
+                {version.name && <small>{version.auto_name}</small>}
+                {version.preview_hash ? (
+                  <PreviewPlayer
+                    hash={version.preview_hash}
+                    tempo={version.tempo}
+                    timeSig={timeSig}
+                  />
+                ) : (
+                  <small>
+                    Pas d'aperçu : le set n'a pas été écouté depuis la version précédente.
+                  </small>
+                )}
+                <div className="actions">
+                  <button disabled={!!busy} onClick={restore}>
+                    Restaurer
+                  </button>
+                  <button
+                    disabled={!!busy}
+                    onClick={() => setBranchName(branchName === null ? "" : null)}
+                  >
+                    Nouvelle branche…
+                  </button>
+                  {version.parent_id !== null && (
+                    <button
+                      onClick={() => {
+                        setChecked([version.parent_id!, version.id]);
+                        setComparing(true);
+                      }}
+                    >
+                      Comparer à la précédente
+                    </button>
+                  )}
+                  <button className="danger" disabled={!!busy} onClick={remove}>
+                    Supprimer
+                  </button>
+                </div>
+                {branchName !== null && (
+                  <form className="branch-form" onSubmit={createBranch}>
+                    <input
+                      autoFocus
+                      placeholder="Nom : version club, radio edit…"
+                      value={branchName}
+                      onChange={(e) => setBranchName(e.target.value)}
+                    />
+                    <button className="primary" disabled={!branchName.trim() || !!busy}>
+                      Créer
+                    </button>
+                  </form>
+                )}
+              </div>
+            )}
+          </>
+        }
       />
 
       {comparing && pair.length === 2 && (

@@ -5,6 +5,7 @@ mod commands;
 mod db;
 mod live;
 mod live_window;
+mod notes;
 mod previews;
 mod scanner;
 mod vault;
@@ -103,6 +104,10 @@ pub fn run() {
             commands::live_status,
             commands::live_jump,
             commands::install_remote_script,
+            commands::list_tree_notes,
+            commands::add_tree_note,
+            commands::update_tree_note,
+            commands::delete_tree_note,
         ])
         .run(tauri::generate_context!())
         .expect("erreur au lancement de l'application");

@@ -185,6 +185,20 @@ CREATE TABLE captures (
 );
 
 CREATE INDEX captures_set ON captures(als_path);
+"#, r#"
+-- Notes posées dans l'espace de l'arbre des versions. Accrochée à une
+-- version, (x, y) est un décalage par rapport à elle ; sinon une position.
+CREATE TABLE tree_notes (
+    id         INTEGER PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    version_id INTEGER REFERENCES versions(id) ON DELETE SET NULL,
+    x          REAL NOT NULL,
+    y          REAL NOT NULL,
+    text       TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX tree_notes_project ON tree_notes(project_id);
 "#];
 
 pub fn open(path: &Path) -> Result<Connection> {
