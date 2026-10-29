@@ -68,6 +68,20 @@ Le device n'enregistre que si l'appli tourne : il parle à l'appli en OSC sur `1
 - Actions destructrices (supprimer une version, une branche, une session de travail) : rien ne part tout de suite, la notification laisse 6 s pour « Annuler » ; la suppression a lieu à son expiration (ou à la fermeture de la fenêtre). La suppression d'une branche garde sa confirmation, puisque son dossier part à la corbeille.
 - N'importe quelle partie de l'interface peut en afficher une avec l'évènement DOM `am:toast` (`{ message, undo?, commit?, duration? }`).
 
+### Raccourcis et palette
+
+| Touche | Effet |
+| --- | --- |
+| Espace | Écouter / arrêter l'aperçu du projet sélectionné |
+| ↑ ↓ | Projet précédent / suivant. Pendant une écoute, le lecteur passe au projet suivant sans couper et reprend au même endroit relatif (à 40 % du morceau → à 40 % du suivant) ; un projet sans aperçu ne coupe pas l'écoute en cours |
+| / | Rechercher dans la bibliothèque |
+| F | Ajouter ou retirer des favoris |
+| Ctrl + K | Palette |
+| Ctrl + O | Ouvrir le projet dans Live |
+| ? | Liste des raccourcis |
+
+Les touches seules ne font rien quand tu tapes dans un champ ou qu'une fenêtre est ouverte. La palette (Ctrl + K) cherche parmi tous les projets (nom, tags, statut, sans tenir compte des accents) et les actions : ouvrir dans Live, ouvrir le dossier, écouter, rendu complet, scanner, réglages, santé de la bibliothèque, et les collections enregistrées (elles appliquent leur filtre à l'explorateur). ↑ ↓ pour choisir, Entrée pour lancer, Échap pour fermer.
+
 ## Développer
 
 Prérequis : [Rust](https://rustup.rs), Node 22 et les [prérequis Tauri](https://tauri.app/start/prerequisites/) (WebView2 est déjà présent sur Windows 10/11).
