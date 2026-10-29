@@ -1,0 +1,13 @@
+[package]
+name = "als-parser"
+version = "0.1.0"
+edition = "2021"
+description = "Lecture des fichiers .als d'Ableton Live (XML gzip)"
+
+[dependencies]
+flate2 = "1"
+quick-xml = "0.37"
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+
+[dev-dependencies]
