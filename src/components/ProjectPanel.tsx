@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, formatDate, ProjectDetail, STATUS_LABELS, Status } from "../api";
+import TimelineTab from "./TimelineTab";
 import VersionsTab from "./VersionsTab";
 
 interface Props {
@@ -15,7 +16,7 @@ const KIND_LABELS = { audio: "Audio", midi: "MIDI", group: "Groupe", return: "Re
 
 export default function ProjectPanel({ id, onClose, onChange, onVaultChange }: Props) {
   const [project, setProject] = useState<ProjectDetail | null>(null);
-  const [tab, setTab] = useState<"infos" | "versions">("infos");
+  const [tab, setTab] = useState<"infos" | "timeline" | "versions">("infos");
   const [note, setNote] = useState("");
   const [newTag, setNewTag] = useState("");
 
@@ -47,7 +48,7 @@ export default function ProjectPanel({ id, onClose, onChange, onVaultChange }: P
   const missing = project.samples.filter((s) => s.missing).length;
 
   return (
-    <aside className={`panel ${tab === "versions" ? "wide" : ""}`}>
+    <aside className={`panel ${tab !== "infos" ? "wide" : ""}`}>
       <header>
         <button
           className="icon star"
@@ -66,10 +67,15 @@ export default function ProjectPanel({ id, onClose, onChange, onVaultChange }: P
         <button className={tab === "infos" ? "active" : ""} onClick={() => setTab("infos")}>
           Infos
         </button>
+        <button className={tab === "timeline" ? "active" : ""} onClick={() => setTab("timeline")}>
+          Timeline
+        </button>
         <button className={tab === "versions" ? "active" : ""} onClick={() => setTab("versions")}>
           Versions
         </button>
       </nav>
+
+      {tab === "timeline" && <TimelineTab projectId={id} />}
 
       {tab === "versions" && <VersionsTab projectId={id} onVaultChange={onVaultChange} />}
 

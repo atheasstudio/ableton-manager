@@ -1,5 +1,8 @@
+mod annotations;
 mod commands;
 mod db;
+mod live;
+mod live_window;
 mod notes;
 mod scanner;
 mod vault;
@@ -51,6 +54,7 @@ pub fn run() {
             let conn = db::open(&db_path)?;
             app.manage(AppState { db: Mutex::new(conn), db_path, data_dir: dir });
             app.manage(watcher::SaveWatcher::start(app.handle().clone()));
+            app.manage(live::Live::new());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -80,6 +84,14 @@ pub fn run() {
             commands::open_branch_folder,
             commands::vault_info,
             commands::set_vault_dir,
+            commands::get_timeline,
+            commands::add_annotation,
+            commands::update_annotation,
+            commands::delete_annotation,
+            commands::import_locators,
+            commands::live_status,
+            commands::live_jump,
+            commands::install_remote_script,
             commands::list_tree_notes,
             commands::add_tree_note,
             commands::update_tree_note,
