@@ -16,7 +16,7 @@ use crate::live_window;
 use crate::previews::{self, PreviewInfo};
 use crate::versions::{self, Branch, Diff, NewBranch, RestoreReport, VersionRow};
 use crate::watcher::SaveWatcher;
-use crate::{doctor, notes, organize, scanner, worktime, AppState, VAULT_DIR};
+use crate::{doctor, notes, organize, scanner, tray, worktime, AppState, VAULT_DIR};
 
 /// Erreur renvoyée à l'interface sous forme de texte.
 #[derive(Debug, thiserror::Error)]
@@ -90,7 +90,7 @@ pub async fn scan(app: AppHandle) -> Result<ScanReport> {
         .map_err(|e| Error::Other(e.to_string()))?
 }
 
-fn scan_blocking(app: &AppHandle) -> Result<ScanReport> {
+pub(crate) fn scan_blocking(app: &AppHandle) -> Result<ScanReport> {
     let state = app.state::<AppState>();
     let roots = db::list_roots(&state.db.lock().unwrap())?;
     let mut report = ScanReport {
@@ -921,6 +921,31 @@ pub async fn doctor_relink(
 #[tauri::command]
 pub fn doctor_plugins(state: State<AppState>) -> Result<Vec<db::PluginUse>> {
     Ok(db::plugin_inventory(&state.db.lock().unwrap())?)
+}
+
+// ---------- Icône système et démarrage ----------
+
+#[tauri::command]
+pub fn close_to_tray(state: State<AppState>) -> Result<bool> {
+    Ok(tray::close_to_tray(&state.db.lock().unwrap())?)
+}
+
+#[tauri::command]
+pub fn set_close_to_tray(state: State<AppState>, enabled: bool) -> Result<()> {
+    Ok(tray::set_close_to_tray(&state.db.lock().unwrap(), enabled)?)
+}
+
+#[tauri::command]
+pub fn autostart_enabled(app: AppHandle) -> Result<bool> {
+    use tauri_plugin_autostart::ManagerExt;
+    app.autolaunch().is_enabled().map_err(|e| Error::Other(e.to_string()))
+}
+
+#[tauri::command]
+pub fn set_autostart_enabled(app: AppHandle, enabled: bool) -> Result<()> {
+    use tauri_plugin_autostart::ManagerExt;
+    let launcher = app.autolaunch();
+    if enabled { launcher.enable() } else { launcher.disable() }.map_err(|e| Error::Other(e.to_string()))
 }
 
 // ---------- Temps passé ----------
