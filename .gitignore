@@ -7,3 +7,4 @@ target/
 # projets Ableton personnels (ne pas publier)
 fixtures-local/
 src-tauri/gen/
+__pycache__/
