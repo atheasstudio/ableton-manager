@@ -35,6 +35,7 @@ export default function VersionsTab({ projectId, timeSig, onVaultChange }: Props
   const [busy, setBusy] = useState<string | null>(null);
   const [rename, setRename] = useState("");
   const [branchName, setBranchName] = useState<string | null>(null);
+  const [saveNote, setSaveNote] = useState("");
   const [menu, setMenu] = useState<MenuState | null>(null);
   const autoEnabled = useRef<number | null>(null);
 
@@ -142,6 +143,30 @@ export default function VersionsTab({ projectId, timeSig, onVaultChange }: Props
   const branchOf = (id: number) => view.branches.find((b) => b.id === id);
   const toggleCheck = (id: number) =>
     setChecked((c) => (c.includes(id) ? c.filter((x) => x !== id) : [...c.slice(-1), id]));
+  /** Point 12 : Maj+clic sur une version alors qu'une autre est sélectionnée = comparaison directe. */
+  const compareWithSelected = (id: number) => {
+    if (selected !== null && selected !== id) {
+      setChecked([selected, id]);
+      setComparing(true);
+    } else toggleCheck(id);
+  };
+  /** Point 11 : sauver une version avec un nom proposé (date + note). */
+  async function saveVersion() {
+    const b = view!.branches.find((x) => x.id === version?.branch_id) ??
+      view!.branches.find((x) => x.is_main) ?? view!.branches[0];
+    if (!b) return;
+    const d = new Date();
+    const date = d.toLocaleDateString("fr-FR") + " " + d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+    const name = saveNote.trim() ? `${date} · ${saveNote.trim()}` : date;
+    await run("Sauvegarde…", async () => {
+      const id = await api.snapshotNow(b.id);
+      if (!id) return "Rien n'a changé depuis la dernière version";
+      await api.renameVersion(id, name);
+      setSaveNote("");
+      setSelected(id);
+      return `Version « ${name} » créée`;
+    });
+  }
   const pair = checked
     .map((id) => view.versions.find((v) => v.id === id)!)
     .filter(Boolean)
@@ -233,6 +258,9 @@ export default function VersionsTab({ projectId, timeSig, onVaultChange }: Props
       items: [
         { label: "Nouvelle branche depuis ici…", action: () => branchFrom(v) },
         { label: "Restaurer cette version", action: () => restore(v) },
+        ...(selected !== null && selected !== v.id
+          ? [{ label: "Comparer à la version sélectionnée", action: () => compareWithSelected(v.id) }]
+          : []),
         { label: "Cocher pour comparer", action: () => toggleCheck(v.id) },
         ...(b ? [{ label: `Ouvrir « ${b.name} » dans Live`, action: () => api.openBranch(b.id) }] : []),
         { label: "Supprimer la version", danger: true, action: () => remove(v) },
@@ -258,6 +286,24 @@ export default function VersionsTab({ projectId, timeSig, onVaultChange }: Props
   return (
     <div className="versions">
       {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
+      <form
+        className="save-version"
+        style={{ display: "flex", gap: 6, marginBottom: 8 }}
+        onSubmit={(e) => {
+          e.preventDefault();
+          saveVersion();
+        }}
+      >
+        <input
+          value={saveNote}
+          style={{ flex: 1 }}
+          placeholder="Note (facultative) : nouveau drop, mix voix…"
+          onChange={(e) => setSaveNote(e.target.value)}
+        />
+        <button className="primary" disabled={!!busy} title="Nom proposé : date + note">
+          💾 Sauver une version
+        </button>
+      </form>
       <ul className="branches">
         {view.branches.map((b) => (
           <li key={b.id} title={b.als_path}>
@@ -309,7 +355,7 @@ export default function VersionsTab({ projectId, timeSig, onVaultChange }: Props
         selected={selected}
         onSelect={setSelected}
         checked={checked}
-        onToggleCheck={toggleCheck}
+        onToggleCheck={compareWithSelected}
         onOpenBranch={(id) => api.openBranch(id)}
         onVersionMenu={versionMenu}
         onBranchMenu={branchMenu}
