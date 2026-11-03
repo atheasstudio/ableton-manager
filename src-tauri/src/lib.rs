@@ -156,6 +156,8 @@ pub fn run() {
             commands::doctor_relink,
             commands::doctor_collect_samples,
             commands::doctor_plugins,
+            commands::doctor_duplicates,
+            commands::export_project_zip,
             commands::close_to_tray,
             commands::set_close_to_tray,
             commands::autostart_enabled,

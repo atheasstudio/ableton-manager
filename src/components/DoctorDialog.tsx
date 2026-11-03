@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import {
   api,
   DoctorProgress,
+  DuplicateProject,
   MissingProject,
   PluginUse,
   ProjectSummary,
@@ -15,7 +16,7 @@ function toast(message: string) {
   window.dispatchEvent(new CustomEvent("am:toast", { detail: { message } }));
 }
 
-type Tab = "samples" | "plugins";
+type Tab = "samples" | "plugins" | "duplicates" | "export";
 
 /**
  * Santé de la bibliothèque : samples introuvables (avec réparation) et
@@ -57,8 +58,22 @@ export default function DoctorDialog() {
           <button className={tab === "plugins" ? "active" : ""} onClick={() => setTab("plugins")}>
             Plugins
           </button>
+          <button className={tab === "duplicates" ? "active" : ""} onClick={() => setTab("duplicates")}>
+            Doublons
+          </button>
+          <button className={tab === "export" ? "active" : ""} onClick={() => setTab("export")}>
+            Exporter
+          </button>
         </nav>
-        {tab === "samples" ? <MissingSamples /> : <Plugins onClose={close} />}
+        {tab === "samples" ? (
+          <MissingSamples />
+        ) : tab === "plugins" ? (
+          <Plugins onClose={close} />
+        ) : tab === "duplicates" ? (
+          <Duplicates />
+        ) : (
+          <Export />
+        )}
       </div>
     </div>
   );
@@ -138,6 +153,13 @@ function MissingSamples() {
     }
   }
 
+  /** Répare d'un coup tous les projets qui ont au moins un fichier choisi. */
+  async function repairAll() {
+    for (const p of projects ?? []) {
+      if (p.samples.some((s) => s.path && choices[key(p.project_id, s.path)])) await repair(p);
+    }
+  }
+
   async function repair(p: MissingProject) {
     const relinks: Relink[] = p.samples.flatMap((s) => {
       const chosen = s.path && choices[key(p.project_id, s.path)];
@@ -175,6 +197,16 @@ function MissingSamples() {
         <button className="primary" onClick={search} disabled={busy !== null || names.length === 0}>
           {busy === "search" ? "Recherche…" : "Chercher les fichiers"}
         </button>
+        {candidates !== null && (
+          <button
+            className="primary"
+            onClick={repairAll}
+            disabled={busy !== null || Object.keys(choices).length === 0}
+            title="Relocalise tous les samples pour lesquels un fichier est choisi"
+          >
+            Tout réparer ({Object.keys(choices).length})
+          </button>
+        )}
       </div>
       {status && <p className="message">{status}</p>}
       {error && <p className="message doctor-error">Erreur : {error}</p>}
@@ -333,6 +365,117 @@ function Plugins({ onClose }: { onClose: () => void }) {
                 )}
               </ul>
             )}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** Sets portant le même nom : ouvrir le dossier ou masquer la copie. */
+function Duplicates() {
+  const [groups, setGroups] = useState<DuplicateProject[][] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = () => api.doctorDuplicates().then(setGroups, (e) => setError(String(e)));
+  useEffect(() => {
+    load();
+  }, []);
+
+  async function hide(p: DuplicateProject) {
+    try {
+      await api.setHidden(p.als_path, true);
+      toast(`${p.name} masqué (${p.folder})`);
+      setGroups((g) => g?.map((x) => x.filter((y) => y.id !== p.id)).filter((x) => x.length > 1) ?? null);
+    } catch (e) {
+      toast(`Erreur : ${e}`);
+    }
+  }
+
+  return (
+    <section className="doctor-body">
+      {error && <p className="message doctor-error">Erreur : {error}</p>}
+      {groups && (
+        <p className="message">
+          {groups.length === 0
+            ? "Aucun doublon : chaque set a un nom unique."
+            : `${groups.length} nom${groups.length > 1 ? "s" : ""} en plusieurs exemplaires. Le plus récent est en haut : garde-le et masque ou range les autres.`}
+        </p>
+      )}
+      <ul className="doctor-projects">
+        {groups?.map((g) => (
+          <li key={g[0].id}>
+            <details open={groups.length <= 5}>
+              <summary>
+                <span className="doctor-name">{g[0].name}</span>
+                <span className="doctor-count">{g.length}</span>
+              </summary>
+              <ul className="doctor-dups">
+                {g.map((p, i) => (
+                  <li key={p.id}>
+                    <div className="doctor-sample" title={p.als_path}>
+                      <span>
+                        {i === 0 && <span className="doctor-badge">plus récent</span>}
+                        {new Date(p.modified_at * 1000).toLocaleDateString("fr-FR")}
+                      </span>
+                      <small>{p.folder}</small>
+                    </div>
+                    <button onClick={() => api.openFolder(p.id).catch((e) => toast(String(e)))}>Dossier</button>
+                    {i > 0 && <button onClick={() => hide(p)}>Masquer</button>}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** Export en un clic : rassemble les samples et zippe le dossier du projet. */
+function Export() {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<ProjectSummary[]>([]);
+  const [busy, setBusy] = useState<number | null>(null);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      api.searchProjects(query.trim() ? { query: query.trim() } : {}).then((r) => setResults(r.slice(0, 30)), () => {});
+    }, 200);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  async function run(p: ProjectSummary) {
+    setBusy(p.id);
+    try {
+      const zip = await api.exportProjectZip(p.id);
+      toast(`${p.name} exporté : ${zip}`);
+      api.openFolder(p.id).catch(() => {});
+    } catch (e) {
+      toast(`${p.name} : ${e}`);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <section className="doctor-body">
+      <input type="search" placeholder="Projet à exporter…" value={query} onChange={(e) => setQuery(e.target.value)} autoFocus />
+      <p className="message">
+        Rassemble les samples dans le projet puis crée un .zip à côté du dossier, prêt à envoyer. Ferme le set
+        dans Live avant.
+      </p>
+      <ul className="doctor-dups">
+        {results.map((p) => (
+          <li key={p.id}>
+            <div className="doctor-sample" title={p.folder}>
+              <span>{p.name}</span>
+              <small>{p.folder}</small>
+            </div>
+            <button className="primary" disabled={busy !== null} onClick={() => run(p)}>
+              {busy === p.id ? "Export…" : "Exporter (zip)"}
+            </button>
           </li>
         ))}
       </ul>

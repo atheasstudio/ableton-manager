@@ -153,28 +153,15 @@ export default function WorktimeTab({ projectId, onChange }: Props) {
 
   return (
     <div className="worktime">
-      <div className="wt-stats">
-        <div>
-          <strong>{formatDuration(time.total)}</strong>
-          <small>
-            au total · {time.sessions} session{time.sessions > 1 ? "s" : ""}
-          </small>
-        </div>
-        <div>
-          <strong>{formatDuration(time.week)}</strong>
-          <small>7 derniers jours</small>
-        </div>
-        <div>
-          <strong>{formatDuration(time.month)}</strong>
-          <small>30 derniers jours</small>
-        </div>
-        {time.first !== null && (
-          <div>
-            <strong>{formatAgo(time.first)}</strong>
-            <small>première session</small>
-          </div>
-        )}
-      </div>
+      <p className="wt-summary">
+        Cette semaine : <strong>{formatDuration(time.week)}</strong>. Ce mois-ci :{" "}
+        <strong>{formatDuration(time.month)}</strong>.
+        <br />
+        <small>
+          {formatDuration(time.total)} au total en {time.sessions} session{time.sessions > 1 ? "s" : ""}
+          {time.first !== null && <>, première session {formatAgo(time.first)}</>}.
+        </small>
+      </p>
 
       <DayGrid days={time.days} />
 
