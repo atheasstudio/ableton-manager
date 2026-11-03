@@ -44,12 +44,15 @@ interface Props {
   playing: boolean;
   nested: boolean;
   onPlay: () => void;
+  /** Couleur choisie pour repérer le projet. */
+  color?: string;
+  onStatus: () => void;
   /** Gestionnaires communs avec la vue en liste (clic, clic droit, glisser…). */
   rowProps: React.HTMLAttributes<HTMLDivElement> & { "data-id": number };
 }
 
 /** Carte d'un projet : mini forme d'onde, statut, BPM, temps passé, dernière ouverture. */
-export default function ProjectCard({ project: p, selected, playing, nested, onPlay, rowProps }: Props) {
+export default function ProjectCard({ project: p, selected, playing, nested, onPlay, color, onStatus, rowProps }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const seen = useSeen(ref);
   const [preview, setPreview] = useState<PreviewInfo | null>(null);
@@ -68,14 +71,24 @@ export default function ProjectCard({ project: p, selected, playing, nested, onP
     <div
       ref={ref}
       {...rowProps}
+      style={color ? { borderTop: `4px solid ${color}` } : undefined}
       className={`ecard ${selected ? "selected" : ""} ${nested ? "nested" : ""} ${p.hidden ? "hidden-item" : ""} ${rowProps.className ?? ""}`}
     >
       <div className="ecard-head">
-        <span className={`sdot ${p.status}`} title={STATUS_LABELS[p.status]} />
+        <span
+          className={`sdot ${p.status} clickable`}
+          title={`${STATUS_LABELS[p.status]} (clic : changer)`}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            onStatus();
+          }}
+        />
         <span className="ecard-name" title={p.name}>
           {p.favorite && <span className="fav">★ </span>}
           {p.name}
         </span>
+        {p.tempo ? <span className="ecard-bpm">{Math.round(p.tempo)}</span> : null}
       </div>
       <div className="ecard-wave">
         <button
@@ -105,7 +118,6 @@ export default function ProjectCard({ project: p, selected, playing, nested, onP
       </div>
       <small className="ecard-meta">
         <span>{STATUS_LABELS[p.status]}</span>
-        {p.tempo ? <span>{p.tempo} BPM</span> : null}
         {p.time_spent > 0 && <span title="Temps passé dans Live">⏱ {formatDuration(p.time_spent)}</span>}
       </small>
       <small className="ecard-meta" title="Dernière session dans Live">
