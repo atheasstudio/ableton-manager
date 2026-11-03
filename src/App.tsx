@@ -6,6 +6,7 @@ import Explorer from "./components/Explorer";
 import CommandPalette, { PaletteAction, ShortcutsHelp } from "./components/CommandPalette";
 import PreviewPlayer, { PlayerHandle } from "./components/PreviewPlayer";
 import SettingsDialog, { DEFAULT_ROOT } from "./components/SettingsDialog";
+import Onboarding, { ONBOARDED_KEY } from "./components/Onboarding";
 import Toasts, { toast, toastError } from "./components/Toasts";
 import Workspace from "./components/Workspace";
 import { emit, useShortcuts } from "./shortcuts";
@@ -69,6 +70,13 @@ export default function App() {
   const [capture, setCapture] = useState<CaptureStatus | null>(null);
   const [playing, setPlaying] = useState<ProjectSummary | null>(null);
   const [settings, setSettings] = useState(false);
+  const [onboarding, setOnboarding] = useState(() => {
+    try {
+      return !localStorage.getItem(ONBOARDED_KEY);
+    } catch {
+      return false;
+    }
+  });
   /** Change pour recharger la fiche du projet (aperçu importé par glisser-déposer). */
   const [workspaceKey, setWorkspaceKey] = useState(0);
   const [palette, setPalette] = useState(false);
@@ -510,6 +518,17 @@ export default function App() {
         />
       )}
       {help && <ShortcutsHelp onClose={() => setHelp(false)} />}
+
+      {onboarding && (
+        <Onboarding
+          roots={roots}
+          onRootsChange={refreshRoots}
+          scanning={scanning}
+          onScan={scan}
+          capture={capture}
+          onClose={() => setOnboarding(false)}
+        />
+      )}
 
       {settings && (
         <SettingsDialog

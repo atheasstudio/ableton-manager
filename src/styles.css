@@ -280,3 +280,5 @@ select.status { padding: 4px 8px; font-size: 13px; }
 .egroup.collapsed > .erow {
   display: none;
 }
+.settings-search { width: 100%; }
+.onboarding ul { margin: 0; padding-left: 18px; }
