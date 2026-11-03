@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ask, open } from "@tauri-apps/plugin-dialog";
-import { api, Filter, formatAgo, formatDate, formatDuration, ProjectSummary, STATUS_LABELS, Status } from "../api";
+import { api, Filter, formatAgo, formatDuration, ProjectSummary, STATUS_LABELS, Status } from "../api";
 import { formatSpan } from "../api-explorer";
 import { toast } from "./Toasts";
 import Collections from "./Collections";
@@ -53,6 +53,24 @@ function extraFilters(f: Filter): { key: keyof Filter; label: string }[] {
 /** Cible « nouveau tag » du glisser (une valeur qu'aucun vrai tag ne peut avoir). */
 const NEW_TAG = "__am-nouveau-tag__";
 
+/** Couleur stable d'un tag ou d'un projet, tirée de son nom. */
+export function hueOf(text: string): number {
+  let h = 0;
+  for (const c of text) h = (h * 31 + c.charCodeAt(0)) % 360;
+  return h;
+}
+export const tagStyle = (t: string): React.CSSProperties => ({ background: `hsl(${hueOf(t)} 55% 38%)` });
+
+/** Couleur choisie par projet (gardée sur cet ordinateur). */
+function loadColors(): Record<number, string> {
+  try {
+    return JSON.parse(localStorage.getItem("project-colors") ?? "{}");
+  } catch {
+    return {};
+  }
+}
+const COLORS = ["", "#e05252", "#e0a052", "#d6d052", "#62c462", "#52b8e0", "#7a6ae0", "#d062c4"];
+
 function parentDir(path: string): string {
   const i = Math.max(path.lastIndexOf("\\"), path.lastIndexOf("/"));
   return i > 0 ? path.slice(0, i) : path;
@@ -91,6 +109,20 @@ export default function Explorer(props: Props) {
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [view, setViewState] = useState<View>(loadView);
+  /** Sélection multiple (Ctrl/Maj + clic). */
+  const [multi, setMulti] = useState<Set<number>>(new Set());
+  const anchor = useRef<number | null>(null);
+  const [colors, setColors] = useState<Record<number, string>>(loadColors);
+  const [batchTag, setBatchTag] = useState("");
+  const setColor = (id: number, c: string) =>
+    setColors((old) => {
+      const n = { ...old, [id]: c };
+      if (!c) delete n[id];
+      try {
+        localStorage.setItem("project-colors", JSON.stringify(n));
+      } catch {}
+      return n;
+    });
   /** Projet glissé vers un tag, à la souris (pas de glisser-déposer HTML5 : cassé dans la webview Windows). */
   const [drag, setDrag] = useState<{ project: ProjectSummary; x: number; y: number; over: string | null } | null>(
     null,
@@ -291,6 +323,10 @@ export default function Explorer(props: Props) {
       items: [
         { label: "▶ Ouvrir dans Live", action: () => api.openInAbleton(p.id) },
         { label: "Ouvrir le dossier", action: () => api.openFolder(p.id) },
+        ...COLORS.map((c) => ({
+          label: c ? `Couleur ● ${c}` : "Sans couleur",
+          action: () => setColor(p.id, c),
+        })),
         {
           label: "Rapatrier les samples dans le projet",
           action: () =>
@@ -407,11 +443,60 @@ export default function Explorer(props: Props) {
     window.addEventListener("keydown", key, true);
   }
 
+  function clickItem(e: React.MouseEvent, id: number) {
+    if (e.ctrlKey || e.metaKey) {
+      setMulti((m) => {
+        const n = new Set(m);
+        if (selected !== null && n.size === 0) n.add(selected);
+        if (!n.delete(id)) n.add(id);
+        return n;
+      });
+    } else if (e.shiftKey && anchor.current !== null) {
+      const a = order.indexOf(anchor.current);
+      const b = order.indexOf(id);
+      if (a >= 0 && b >= 0) setMulti(new Set(order.slice(Math.min(a, b), Math.max(a, b) + 1)));
+    } else {
+      setMulti(new Set());
+      anchor.current = id;
+    }
+    props.onSelect(id);
+  }
+
+  /** Un clic sur la pastille : statut suivant. */
+  function cycleStatus(p: ProjectSummary) {
+    const s = STATUS_ORDER[(STATUS_ORDER.indexOf(p.status) + 1) % STATUS_ORDER.length];
+    act(
+      async () => {
+        await api.setStatus(p.id, s);
+        return `« ${p.name} » : ${STATUS_LABELS[s]}`;
+      },
+      () => api.setStatus(p.id, p.status),
+    );
+  }
+
+  const chosen = projects.filter((p) => multi.has(p.id));
+  function batch(label: string, work: (p: ProjectSummary) => Promise<unknown>) {
+    const ps = chosen;
+    act(async () => {
+      for (const p of ps) await work(p);
+      return `${label} : ${ps.length} projets`;
+    });
+  }
+  const resume = useMemo(
+    () =>
+      projects
+        .filter((p) => p.last_worked_at)
+        .sort((a, b) => (b.last_worked_at ?? 0) - (a.last_worked_at ?? 0))
+        .slice(0, 5),
+    [projects],
+  );
+
   /** Gestionnaires communs aux lignes et aux cartes. */
   const itemProps = (p: ProjectSummary, inGroup: boolean) => ({
     "data-id": p.id,
     onPointerDown: (e: React.PointerEvent) => onItemPointerDown(e, p),
-    onClick: () => props.onSelect(p.id),
+    onClick: (e: React.MouseEvent) => clickItem(e, p.id),
+    onDoubleClick: () => api.openInAbleton(p.id).catch((err) => toast(`Erreur : ${err}`)),
     onContextMenu: (e: React.MouseEvent) => projectMenu(e, p, inGroup),
     title: p.folder,
   });
@@ -420,7 +505,9 @@ export default function Explorer(props: Props) {
     <ProjectCard
       key={p.id}
       project={p}
-      selected={p.id === selected}
+      selected={p.id === selected || multi.has(p.id)}
+      color={colors[p.id]}
+      onStatus={() => cycleStatus(p)}
       playing={props.playing === p.id}
       nested={inGroup}
       onPlay={() => props.onPlay(p)}
@@ -432,7 +519,8 @@ export default function Explorer(props: Props) {
     <div
       key={p.id}
       {...itemProps(p, inGroup)}
-      className={`erow ${p.id === selected ? "selected" : ""} ${inGroup ? "nested" : ""} ${p.hidden ? "hidden-item" : ""}`}
+      style={colors[p.id] ? { borderLeft: `4px solid ${colors[p.id]}` } : undefined}
+      className={`erow ${p.id === selected || multi.has(p.id) ? "selected" : ""} ${inGroup ? "nested" : ""} ${p.hidden ? "hidden-item" : ""}`}
     >
       <button
         className={`icon listen ${props.playing === p.id ? "active" : ""}`}
@@ -451,7 +539,14 @@ export default function Explorer(props: Props) {
           {p.name}
         </span>
         <small>
-          <span className={`sdot ${p.status}`} title={STATUS_LABELS[p.status]} />
+          <span
+            className={`sdot ${p.status}`}
+            title={`${STATUS_LABELS[p.status]} (clic : changer)`}
+            onClick={(e) => {
+              e.stopPropagation();
+              cycleStatus(p);
+            }}
+          />
           {p.tempo ? `${p.tempo} BPM · ` : ""}
           {sort === "worked"
             ? formatDuration(p.time_spent)
@@ -459,8 +554,12 @@ export default function Explorer(props: Props) {
               ? p.last_worked_at
                 ? formatAgo(p.last_worked_at)
                 : "jamais travaillé"
-              : formatDate(p.modified_at)}
-          {p.tags.length > 0 && ` · ${p.tags.join(", ")}`}
+              : formatAgo(p.modified_at)}
+          {p.tags.map((t) => (
+            <span key={t} className="etag" style={tagStyle(t)}>
+              {t}
+            </span>
+          ))}
         </small>
       </div>
     </div>
@@ -610,6 +709,75 @@ export default function Explorer(props: Props) {
         </div>
       )}
 
+      {resume.length > 0 && !filter.query && (
+        <div className="resume">
+          <small>Reprendre :</small>
+          {resume.map((p) => (
+            <button
+              key={p.id}
+              title={`Ouvrir dans Live (dernière session ${formatAgo(p.last_worked_at!)})`}
+              onClick={() => api.openInAbleton(p.id).catch((err) => toast(`Erreur : ${err}`))}
+            >
+              ▶ {p.name}
+            </button>
+          ))}
+        </div>
+      )}
+      {multi.size > 1 && (
+        <div className="batch-bar">
+          <span>{multi.size} sélectionnés</span>
+          <button onClick={() => batch("Favoris", (p) => api.setFavorite(p.id, true))}>★</button>
+          <select
+            value=""
+            onChange={(e) => {
+              const s = e.target.value as Status;
+              if (s) batch(STATUS_LABELS[s], (p) => api.setStatus(p.id, s));
+            }}
+          >
+            <option value="">Statut…</option>
+            {STATUS_ORDER.map((s) => (
+              <option key={s} value={s}>
+                {STATUS_LABELS[s]}
+              </option>
+            ))}
+          </select>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const t = batchTag.trim();
+              if (t) batch(`Tag « ${t} »`, (p) => (p.tags.includes(t) ? Promise.resolve() : api.addTag(p.id, t)));
+              setBatchTag("");
+            }}
+          >
+            <input list="am-tags" placeholder="Tag…" value={batchTag} onChange={(e) => setBatchTag(e.target.value)} />
+          </form>
+          <button
+            onClick={async () => {
+              const dest = await open({ directory: true, title: "Ranger les projets sélectionnés" });
+              if (typeof dest === "string") batch("Déplacés", (p) => api.movePath(p.als_path ?? p.folder, dest));
+            }}
+          >
+            Ranger…
+          </button>
+          <button className="icon" title="Vider la sélection" onClick={() => setMulti(new Set())}>
+            ×
+          </button>
+        </div>
+      )}
+      <datalist id="am-tags">
+        {props.tags.map((t) => (
+          <option key={t} value={t} />
+        ))}
+      </datalist>
+      {view === "list" && (
+        <div className="ehead">
+          {(["name", "tempo", "status", "recent", "session", "worked"] as Sort[]).map((k) => (
+            <button key={k} className={sort === k ? "active" : ""} onClick={() => setSort(k)}>
+              {{ name: "Nom", tempo: "BPM", status: "Statut", recent: "Modifié", session: "Ouvert", worked: "Temps" }[k as string]}
+            </button>
+          ))}
+        </div>
+      )}
       <div className={`elist ${view === "cards" ? "cards" : ""}`} ref={list} tabIndex={0}>
         {projects.length === 0 && <p className="empty">Aucun projet trouvé.</p>}
         {view === "cards"
@@ -625,6 +793,7 @@ export default function Explorer(props: Props) {
               {props.tags.map((t) => (
                 <span
                   key={t}
+                  style={tagStyle(t)}
                   data-drop-tag={t}
                   className={`tag-target ${drag.over === t ? "over" : ""} ${drag.project.tags.includes(t) ? "has" : ""}`}
                   title={drag.project.tags.includes(t) ? "Déjà sur ce projet" : undefined}
@@ -643,7 +812,7 @@ export default function Explorer(props: Props) {
         </>
       )}
       <small className="ecount">
-        {projects.length} projet{projects.length > 1 ? "s" : ""} · ↑ ↓ pour naviguer · clic droit : actions · glisser sur un tag
+        {projects.length} projet{projects.length > 1 ? "s" : ""} · ↑ ↓ pour naviguer · double-clic : ouvrir dans Live · Ctrl/Maj : sélection multiple · glisser sur un tag
       </small>
     </div>
   );
