@@ -67,9 +67,28 @@ export default function ProjectCard({ project: p, selected, playing, nested, onP
     };
   }, [seen, p.preview_hash]);
 
+  // Écoute au survol : démarre après un court arrêt de la souris, s'arrête en sortant.
+  const hover = useRef<{ timer?: number; started: boolean }>({ started: false });
+  const playingRef = useRef(playing);
+  playingRef.current = playing;
+  const onEnter = () => {
+    if (!p.preview_hash || playingRef.current) return;
+    hover.current.timer = window.setTimeout(() => {
+      hover.current.started = true;
+      onPlay();
+    }, 700);
+  };
+  const onLeave = () => {
+    clearTimeout(hover.current.timer);
+    if (hover.current.started && playingRef.current) onPlay();
+    hover.current.started = false;
+  };
+
   return (
     <div
       ref={ref}
+      onMouseEnter={onEnter}
+      onMouseLeave={onLeave}
       {...rowProps}
       style={color ? { borderTop: `4px solid ${color}` } : undefined}
       className={`ecard ${selected ? "selected" : ""} ${nested ? "nested" : ""} ${p.hidden ? "hidden-item" : ""} ${rowProps.className ?? ""}`}
