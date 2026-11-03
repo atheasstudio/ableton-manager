@@ -47,6 +47,28 @@ export default function Collections({ filter, onFilter }: Props) {
     store([...collections, { id: newId(), name, filter: current }]);
   }
 
+  /** Collections toutes prêtes, ajoutées depuis le menu du « + ». */
+  const PRESETS: Collection[] = [
+    { id: "", name: "Pas touché depuis 3 mois", filter: { not_worked_since: 90 * 86400 } },
+    { id: "", name: "Travaillé cette semaine", filter: { worked_since: 7 * 86400 } },
+    { id: "", name: "Modifié ce mois-ci", filter: { modified_since: 30 * 86400 } },
+    { id: "", name: "Favoris", filter: { favorites_only: true } },
+    { id: "", name: "Finis", filter: { status: "fini" } },
+  ];
+
+  function openPresets(e: React.MouseEvent) {
+    e.preventDefault();
+    setMenu({
+      x: e.clientX,
+      y: e.clientY,
+      items: PRESETS.map((p) => ({
+        label: p.name,
+        disabled: collections.some((c) => sameFilter(c.filter, p.filter)),
+        action: () => store([...collections, { ...p, id: newId() }]),
+      })),
+    });
+  }
+
   function openMenu(e: React.MouseEvent, c: Collection) {
     e.preventDefault();
     setMenu({
@@ -102,9 +124,10 @@ export default function Collections({ filter, onFilter }: Props) {
       })}
       <button
         className="collection add"
-        disabled={empty || collections.some((c) => sameFilter(c.filter, current))}
-        onClick={add}
-        title={empty ? "Choisis d'abord un filtre à enregistrer" : "Enregistrer le filtre courant comme collection"}
+        disabled={!empty && collections.some((c) => sameFilter(c.filter, current))}
+        onClick={(e) => (empty ? openPresets(e) : add())}
+        onContextMenu={openPresets}
+        title={empty ? "Ajouter une collection toute prête" : "Enregistrer le filtre courant · clic droit : collections toutes prêtes"}
       >
         +
       </button>

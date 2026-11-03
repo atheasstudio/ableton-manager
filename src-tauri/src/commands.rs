@@ -989,3 +989,23 @@ pub fn worktime_enabled(state: State<AppState>) -> Result<bool> {
 pub fn set_worktime_enabled(state: State<AppState>, enabled: bool) -> Result<()> {
     Ok(worktime::set_enabled(&state.db.lock().unwrap(), enabled)?)
 }
+
+/// Groupes de sets portant le même nom.
+#[tauri::command]
+pub fn doctor_duplicates(state: State<AppState>) -> Result<Vec<Vec<doctor::DuplicateProject>>> {
+    Ok(doctor::duplicates(&state.db.lock().unwrap())?)
+}
+
+/// Export en un clic : rassemble les samples puis zippe le dossier du projet.
+#[tauri::command]
+pub async fn export_project_zip(app: AppHandle, project_id: i64) -> Result<String> {
+    blocking(app, move |app| {
+        let state = app.state::<AppState>();
+        let mut conn = state.open_db()?;
+        let vault = state.vault(&conn)?;
+        let open = live_window::current_set();
+        doctor::collect_samples(&mut conn, &vault, project_id, open.as_ref(), now())?;
+        Ok(organize::export_zip(&conn, project_id)?)
+    })
+    .await
+}

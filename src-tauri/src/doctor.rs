@@ -449,3 +449,39 @@ mod tests {
         assert_eq!(rel("/m/p/x Project", "/m/lib/a.wav").as_deref(), Some("../../lib/a.wav"));
     }
 }
+
+/// Projet d'un groupe de doublons.
+#[derive(Debug, Serialize)]
+pub struct DuplicateProject {
+    pub id: i64,
+    pub name: String,
+    pub folder: String,
+    pub als_path: String,
+    pub modified_at: i64,
+}
+
+/// Sets qui portent le même nom (sans la casse) : copies probables à fusionner
+/// ou à ranger. Le plus récent d'abord dans chaque groupe.
+pub fn duplicates(conn: &Connection) -> Result<Vec<Vec<DuplicateProject>>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, name, folder, als_path, modified_at FROM projects
+             WHERE lower(name) IN (SELECT lower(name) FROM projects GROUP BY lower(name) HAVING count(*) > 1)
+             ORDER BY lower(name), modified_at DESC",
+        )
+        ?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok(DuplicateProject { id: r.get(0)?, name: r.get(1)?, folder: r.get(2)?, als_path: r.get(3)?, modified_at: r.get(4)? })
+        })
+        ?;
+    let mut groups: Vec<Vec<DuplicateProject>> = Vec::new();
+    for row in rows {
+        let p = row?;
+        match groups.last_mut() {
+            Some(g) if g[0].name.to_lowercase() == p.name.to_lowercase() => g.push(p),
+            _ => groups.push(vec![p]),
+        }
+    }
+    Ok(groups)
+}
