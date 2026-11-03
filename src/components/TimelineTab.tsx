@@ -18,7 +18,25 @@ export default function TimelineTab({ projectId }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   /** Annotation qui vient d'être créée : on place le curseur sur son nom. */
-  const [focus, setFocus] = useState<number | null>(null);
+  const [focus, setFocus] = useState<{ id: number } | null>(null);
+  /** Annotation en cours de glissement, et sa position provisoire. */
+  const [drag, setDrag] = useState<{ id: number; beat: number; moved: boolean } | null>(null);
+  const timelineRef = useRef<HTMLDivElement>(null);
+  /** Raccourci M : toujours la version à jour de addAtLive. */
+  const shortcut = useRef<() => void>(() => {});
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "m" && e.key !== "M") return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      e.preventDefault();
+      shortcut.current();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   async function load() {
     setTimeline(await api.getTimeline(projectId));
@@ -56,6 +74,9 @@ export default function TimelineTab({ projectId }: Props) {
   const { annotations, locators, tempo } = timeline;
 
   const connected = status?.script != null;
+  /** Live tourne (fenêtre trouvée) mais le Remote Script ne répond pas. */
+  const scriptMissing = !!status && !connected && status.open_set !== null;
+  const liveClosed = !!status && !connected && status.open_set === null;
   const outdated = connected && status!.script! < status!.expected_script;
   const here = connected && status!.is_open !== false;
   const playhead = here ? (status!.transport?.beat ?? null) : null;
@@ -102,7 +123,7 @@ export default function TimelineTab({ projectId }: Props) {
   async function add(beat: number, label = "") {
     const a = await api.addAnnotation(projectId, beat, label);
     await load();
-    setFocus(a.id);
+    setFocus({ id: a.id });
   }
 
   function addAt(e: React.MouseEvent<HTMLDivElement>) {
@@ -118,6 +139,49 @@ export default function TimelineTab({ projectId }: Props) {
       if (!s.transport) return "Live ne répond pas";
       await add(Math.round(s.transport.beat * 4) / 4);
     });
+  }
+
+  shortcut.current = () => {
+    if (here && !busy) addAtLive();
+  };
+
+  /** Glisser une annotation sur la timeline pour la déplacer (calée au temps). */
+  function startDrag(e: React.PointerEvent<HTMLButtonElement>, a: Annotation) {
+    if (e.button !== 0) return;
+    const rect = timelineRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const target = e.currentTarget;
+    target.setPointerCapture(e.pointerId);
+    const startX = e.clientX;
+    const beatAt = (x: number) => {
+      const raw = ((x - rect.left) / rect.width) * total;
+      // Maj : position libre à la double-croche, sinon calée au temps.
+      return Math.max(0, Math.round(raw / (e.shiftKey ? 0.25 : 1)) * (e.shiftKey ? 0.25 : 1));
+    };
+    let state = { id: a.id, beat: a.beat, moved: false };
+    const move = (ev: PointerEvent) => {
+      if (!state.moved && Math.abs(ev.clientX - startX) < 4) return;
+      state = { id: a.id, beat: beatAt(ev.clientX), moved: true };
+      setDrag(state);
+    };
+    const up = () => {
+      target.removeEventListener("pointermove", move);
+      target.removeEventListener("pointerup", up);
+      target.removeEventListener("pointercancel", up);
+      if (state.moved && state.beat !== a.beat) {
+        action(async () => {
+          await api.updateAnnotation(a.id, state.beat, a.label);
+          await load();
+          setDrag(null);
+        });
+      } else {
+        // Laisse passer le clic qui suit (sauf après un glissement).
+        window.setTimeout(() => setDrag(null), 0);
+      }
+    };
+    target.addEventListener("pointermove", move);
+    target.addEventListener("pointerup", up);
+    target.addEventListener("pointercancel", up);
   }
 
   function install() {
@@ -143,25 +207,42 @@ export default function TimelineTab({ projectId }: Props) {
   return (
     <div className="timeline-tab">
       <div className="live-status">
-        <span className={`dot ${connected ? (here ? "on" : "other") : "off"}`} />
+        <span
+          className={`dot ${connected ? (here && !outdated ? "on" : "other") : "off"}`}
+          style={scriptMissing ? { background: "#e5534b" } : undefined}
+        />
         <span className="live-text">
           {!status && "Recherche de Live…"}
-          {status &&
-            !connected &&
-            "Live ne répond pas : un clic sur une annotation ouvrira le projet."}
+          {liveClosed && "Live fermé : un clic sur une annotation ouvrira le projet."}
+          {scriptMissing &&
+            "Live est ouvert mais le Remote Script ne répond pas (absent ou pas choisi dans les préférences)."}
+          {outdated && "Remote Script à mettre à jour · "}
           {connected &&
             status!.is_open === false &&
             `« ${status!.open_set} » est ouvert dans Live : un clic ouvrira ce projet.`}
           {here && (status!.transport?.playing ? "Connecté à Live · lecture" : "Connecté à Live")}
         </span>
-        {(!connected || outdated) && status && (
-          <button onClick={install} title="Copie le Remote Script dans la User Library de Live">
-            {outdated ? "Mettre à jour le script" : "Installer le script"}
+        {(scriptMissing || outdated) && (
+          <button
+            onClick={install}
+            disabled={!!busy}
+            title="Réinstalle le Remote Script dans la User Library de Live"
+          >
+            Réparer
+          </button>
+        )}
+        {liveClosed && (
+          <button
+            onClick={install}
+            disabled={!!busy}
+            title="Copie le Remote Script dans la User Library de Live (à faire une fois)"
+          >
+            Installer le script
           </button>
         )}
       </div>
 
-      <div className="timeline" onClick={addAt} title="Cliquer pour ajouter une annotation">
+      <div ref={timelineRef} className="timeline" onClick={addAt} title="Cliquer pour ajouter une annotation">
         <div className="ruler">
           {Array.from({ length: Math.ceil(bars / step) }, (_, i) => i * step)
             // Pas de numéro coupé contre le bord droit.
@@ -183,20 +264,29 @@ export default function TimelineTab({ projectId }: Props) {
             title={`Locator : ${l.name}`}
           />
         ))}
-        {annotations.map((a) => (
-          <button
-            key={a.id}
-            className="marker"
-            style={{ left: pct(a.beat) }}
-            title={`${a.label || "Sans nom"} · mesure ${formatPosition(a.beat, meter)} : envoyer Live ici`}
-            onClick={(e) => {
-              e.stopPropagation();
-              jump(a.beat);
-            }}
-          >
-            <span>{a.label || formatPosition(a.beat, meter)}</span>
-          </button>
-        ))}
+        {annotations.map((a) => {
+          const beat = drag?.id === a.id ? drag.beat : a.beat;
+          return (
+            <button
+              key={a.id}
+              className="marker"
+              style={{ left: pct(beat), cursor: drag?.id === a.id ? "grabbing" : "grab" }}
+              title={`${a.label || "Sans nom"} · mesure ${formatPosition(beat, meter)}\nClic : envoyer Live ici · glisser : déplacer (Maj : précis) · double-clic : renommer`}
+              onPointerDown={(e) => startDrag(e, a)}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (drag || e.detail > 1) return;
+                jump(a.beat);
+              }}
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                setFocus({ id: a.id });
+              }}
+            >
+              <span>{a.label || formatPosition(beat, meter)}</span>
+            </button>
+          );
+        })}
         {playhead !== null && <span className="playhead" style={{ left: pct(playhead) }} />}
       </div>
 
@@ -208,9 +298,9 @@ export default function TimelineTab({ projectId }: Props) {
         <button
           disabled={!here || !!busy}
           onClick={addAtLive}
-          title="Ajoute une annotation là où est la tête de lecture de Live"
+          title="Ajoute une annotation là où est la tête de lecture de Live (raccourci : M)"
         >
-          + Position de Live
+          + Position de Live (M)
         </button>
         {notImported.length > 0 && (
           <button
@@ -244,7 +334,7 @@ export default function TimelineTab({ projectId }: Props) {
               annotation={a}
               meter={meter}
               tempo={tempo}
-              autoFocus={focus === a.id}
+              autoFocus={focus?.id === a.id ? focus : null}
               onJump={() => jump(a.beat)}
               onSave={(beat, label) =>
                 action(async () => {
@@ -270,7 +360,8 @@ interface RowProps {
   annotation: Annotation;
   meter: Meter;
   tempo: number | null;
-  autoFocus: boolean;
+  /** Change d'objet à chaque demande, pour refocaliser même la même ligne. */
+  autoFocus: object | null;
   onJump: () => void;
   onSave: (beat: number, label: string) => void;
   onDelete: () => void;
@@ -295,7 +386,10 @@ function AnnotationRow({
   }, [a.beat, a.label, meter.num, meter.den]);
 
   useEffect(() => {
-    if (autoFocus) labelRef.current?.focus();
+    if (autoFocus) {
+      labelRef.current?.focus();
+      labelRef.current?.select();
+    }
   }, [autoFocus]);
 
   function save() {
