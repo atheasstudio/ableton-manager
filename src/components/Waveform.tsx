@@ -19,6 +19,11 @@ interface Props {
   height?: number;
 }
 
+function fmt(t: number): string {
+  const s = Math.max(0, Math.floor(t));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
 function cssVar(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
@@ -92,6 +97,21 @@ export default function Waveform({ peaks, duration, position, onSeek, markers = 
       ref={canvas}
       className="waveform"
       style={{ height }}
+      tabIndex={0}
+      role="slider"
+      aria-label="Position de lecture"
+      aria-valuemin={0}
+      aria-valuemax={Math.round(duration)}
+      aria-valuenow={Math.round(position)}
+      title={hover !== null && width > 0 ? fmt((hover / width) * duration) : undefined}
+      onKeyDown={(e) => {
+        const step = e.shiftKey ? 15 : 5;
+        if (e.key === "ArrowLeft") onSeek(Math.max(0, position - step));
+        else if (e.key === "ArrowRight") onSeek(Math.min(duration, position + step));
+        else if (e.key === "Home") onSeek(0);
+        else return;
+        e.preventDefault();
+      }}
       onPointerDown={(e) => {
         e.currentTarget.setPointerCapture(e.pointerId);
         onSeek(seconds(e));
