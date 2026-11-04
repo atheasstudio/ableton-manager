@@ -41,15 +41,20 @@ pub fn show(app: &AppHandle) {
 
 pub fn build(app: &AppHandle) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "Ouvrir", true, None::<&str>)?;
+    let last = MenuItem::with_id(app, "open-last", "Ouvrir le dernier projet dans Live", true, None::<&str>)?;
     let scan = MenuItem::with_id(app, "scan", "Scanner", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quitter", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &scan, &quit])?;
+    let menu = Menu::with_items(app, &[&open, &last, &scan, &quit])?;
     let mut tray = TrayIconBuilder::with_id("main")
         .tooltip("Ableton Manager")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, e| match e.id().as_ref() {
             "open" => show(app),
+            // L'interface connaît le dernier projet ouvert (gardé côté fenêtre).
+            "open-last" => {
+                let _ = app.emit("tray-open-last", ());
+            }
             "scan" => scan_in_background(app.clone()),
             "quit" => app.exit(0),
             _ => {}

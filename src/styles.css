@@ -14,7 +14,29 @@
   background: var(--bg);
 }
 
+/* Thème clair quand Windows est en clair. */
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f4f4f4;
+    --surface: #ffffff;
+    --surface-2: #ececec;
+    --border: #d4d4d4;
+    --text: #1d1d1d;
+    --muted: #666;
+    --accent: #e0651a;
+    --danger: #c9372c;
+    --note: #a07a10;
+  }
+}
+
 * { box-sizing: border-box; }
+/* Animations courtes. */
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.app.sidebar-hidden > .explorer { display: none; }
+.app.focus .workspace { max-width: none; }
+.sidebar-toggle { position: fixed; top: 8px; left: 8px; z-index: 20; font-size: 18px; }
+.app.sidebar-hidden .workspace { padding-left: 40px; }
 body { margin: 0; }
 h1 { font-size: 16px; margin: 0 0 16px; }
 h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 0 0 8px; }
@@ -280,3 +302,5 @@ select.status { padding: 4px 8px; font-size: 13px; }
 .egroup.collapsed > .erow {
   display: none;
 }
+.settings-search { width: 100%; }
+.onboarding ul { margin: 0; padding-left: 18px; }

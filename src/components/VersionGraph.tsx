@@ -425,7 +425,7 @@ export default function VersionGraph(props: Props) {
                   props.onSelect(v.id);
                   props.onVersionMenu(v, e);
                 }}
-                title={`${v.auto_name}\nMaj + clic : cocher pour comparer`}
+                title={`${v.auto_name}\nMaj + clic : comparer à la version sélectionnée`}
               >
                 <span className="gnode-name">{versionLabel(v)}</span>
                 <small>

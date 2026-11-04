@@ -36,6 +36,24 @@ function matches(query: string[], text: string): boolean {
 }
 
 const MAX_PROJECTS = 30;
+const RECENT_KEY = "palette.recent";
+
+/** Identifiants des dernières actions lancées (les plus récentes d'abord). */
+function recentIds(): string[] {
+  try {
+    return JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]");
+  } catch {
+    return [];
+  }
+}
+
+function remember(id: string) {
+  try {
+    localStorage.setItem(RECENT_KEY, JSON.stringify([id, ...recentIds().filter((r) => r !== id)].slice(0, 5)));
+  } catch {
+    // Récents non gardés : sans gravité.
+  }
+}
 
 /** Palette (Ctrl+K) : chercher un projet ou lancer une action. */
 export default function CommandPalette({ actions, onSelectProject, onClose }: Props) {
@@ -71,8 +89,14 @@ export default function CommandPalette({ actions, onSelectProject, onClose }: Pr
           .slice(0, MAX_PROJECTS)
           .map((project) => ({ kind: "project" as const, project }))
       : [];
-    // Sans recherche : les actions ; avec : les projets d'abord, c'est le plus courant.
-    return words.length ? [...projs, ...acts] : acts;
+    // Sans recherche : les récentes d'abord ; avec : les projets d'abord, c'est le plus courant.
+    if (words.length) return [...projs, ...acts];
+    const rec = recentIds();
+    const rank = (e: (typeof acts)[number]) => {
+      const i = rec.indexOf(e.action.id);
+      return i < 0 ? rec.length : i;
+    };
+    return [...acts].sort((a, b) => rank(a) - rank(b));
   }, [query, actions, collections, projects]);
 
   useEffect(() => setActive(0), [query]);
@@ -83,7 +107,10 @@ export default function CommandPalette({ actions, onSelectProject, onClose }: Pr
   function choose(e: Entry | undefined) {
     if (!e) return;
     onClose();
-    if (e.kind === "action") e.action.run();
+    if (e.kind === "action") {
+      remember(e.action.id);
+      e.action.run();
+    }
     else onSelectProject(e.project.id);
   }
 

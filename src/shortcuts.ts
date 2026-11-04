@@ -8,6 +8,11 @@ export const SHORTCUTS: [string, string][] = [
   ["F", "Ajouter ou retirer des favoris"],
   ["Ctrl + K", "Palette : projets et actions"],
   ["Ctrl + O", "Ouvrir le projet dans Live"],
+  ["Ctrl + E", "Ouvrir le dossier du projet dans l'Explorateur"],
+  ["Ctrl + Z", "Annuler la dernière action (suppression, rangement…)"],
+  ["Ctrl + B", "Replier / déplier la barre latérale"],
+  ["Ctrl + Maj + F", "Mode focus : le projet seul, plein écran"],
+  ["Ctrl + + / −", "Agrandir / réduire le texte"],
   ["?", "Afficher les raccourcis"],
   ["Échap", "Fermer la palette ou l'aide"],
 ];
@@ -17,6 +22,16 @@ export interface ShortcutHandlers {
   palette: () => void;
   openInLive: () => void;
   help: () => void;
+  openFolder: () => void;
+  undo: () => void;
+  toggleSidebar: () => void;
+  toggleFocus: () => void;
+  zoom: (delta: number) => void;
+}
+
+/** Raccourci à afficher dans une infobulle : « Scanner (Ctrl+K) ». */
+export function withKey(label: string, key: string): string {
+  return `${label} (${key})`;
 }
 
 /** Vrai quand la frappe va dans un champ : les raccourcis d'une touche ne s'appliquent pas. */
@@ -57,9 +72,29 @@ export function useShortcuts(handlers: ShortcutHandlers) {
       const h = ref.current;
       const ctrl = e.ctrlKey || e.metaKey;
 
+      if (ctrl && !e.altKey && e.shiftKey && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        h.toggleFocus();
+        return;
+      }
       if (ctrl && !e.altKey && !e.shiftKey) {
         const k = e.key.toLowerCase();
-        if (k === "k") {
+        if (k === "e") {
+          e.preventDefault();
+          h.openFolder();
+        } else if (k === "z") {
+          e.preventDefault();
+          h.undo();
+        } else if (k === "b") {
+          e.preventDefault();
+          h.toggleSidebar();
+        } else if (k === "=" || k === "+") {
+          e.preventDefault();
+          h.zoom(1);
+        } else if (k === "-") {
+          e.preventDefault();
+          h.zoom(-1);
+        } else if (k === "k") {
           e.preventDefault();
           h.palette();
         } else if (k === "o") {

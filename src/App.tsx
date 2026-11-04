@@ -6,12 +6,56 @@ import Explorer from "./components/Explorer";
 import CommandPalette, { PaletteAction, ShortcutsHelp } from "./components/CommandPalette";
 import PreviewPlayer, { PlayerHandle } from "./components/PreviewPlayer";
 import SettingsDialog, { DEFAULT_ROOT } from "./components/SettingsDialog";
-import Toasts, { toast, toastError } from "./components/Toasts";
+import Onboarding, { ONBOARDED_KEY } from "./components/Onboarding";
+import Toasts, { friendlyError, toast, toastError, undoLast } from "./components/Toasts";
 import Workspace from "./components/Workspace";
-import { emit, useShortcuts } from "./shortcuts";
+import { emit, useShortcuts, withKey } from "./shortcuts";
 import "./ui.css";
 
 const SELECTED_KEY = "app.selected";
+const FILTER_KEY = "app.filter";
+const LAYOUT_KEY = "app.layout";
+const LAST_OPENED_KEY = "app.lastOpened";
+
+/** Disposition gardée entre les sessions. */
+interface Layout {
+  sidebar: boolean;
+  focus: boolean;
+  /** Taille du texte en px (densité). */
+  fontSize: number;
+}
+
+function load<T>(key: string, fallback: T): T {
+  try {
+    const v = localStorage.getItem(key);
+    return v ? { ...fallback, ...JSON.parse(v) } : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function save(key: string, value: unknown) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Non gardé : sans gravité.
+  }
+}
+
+/** Dernier projet ouvert dans Live depuis l'app. */
+function lastOpened(): number | null {
+  try {
+    const v = Number(localStorage.getItem(LAST_OPENED_KEY));
+    return v > 0 ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Dossier qui contient un fichier. */
+function parentDir(path: string): string {
+  return path.replace(/[\\/][^\\/]+$/, "");
+}
 
 const AUDIO_EXT = ["wav", "aif", "aiff", "mp3", "flac", "ogg", "m4a"];
 
@@ -28,6 +72,11 @@ function sortDrop(paths: string[]) {
   const audio = paths.filter((p) => AUDIO_EXT.includes(extension(p)));
   const folders = paths.filter((p) => extension(p) === "");
   const sets = paths.filter((p) => extension(p) === "als");
+  // Un .als déposé : on ajoute le dossier du projet qui le contient.
+  for (const s of sets) {
+    const dir = parentDir(s);
+    if (!folders.includes(dir)) folders.push(dir);
+  }
   return { audio, folders, sets };
 }
 
@@ -61,7 +110,8 @@ export default function App() {
   const [roots, setRoots] = useState<Root[]>([]);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [tags, setTags] = useState<string[]>([]);
-  const [filter, setFilter] = useState<Filter>({});
+  const [filter, setFilter] = useState<Filter>(() => load<Filter>(FILTER_KEY, {}));
+  const [layout, setLayout] = useState<Layout>(() => load<Layout>(LAYOUT_KEY, { sidebar: true, focus: false, fontSize: 14 }));
   const [selected, setSelectedState] = useState<number | null>(savedSelection);
   const [progress, setProgress] = useState<ScanProgress | null>(null);
   const [scanning, setScanning] = useState(false);
@@ -69,6 +119,13 @@ export default function App() {
   const [capture, setCapture] = useState<CaptureStatus | null>(null);
   const [playing, setPlaying] = useState<ProjectSummary | null>(null);
   const [settings, setSettings] = useState(false);
+  const [onboarding, setOnboarding] = useState(() => {
+    try {
+      return !localStorage.getItem(ONBOARDED_KEY);
+    } catch {
+      return false;
+    }
+  });
   /** Change pour recharger la fiche du projet (aperçu importé par glisser-déposer). */
   const [workspaceKey, setWorkspaceKey] = useState(0);
   const [palette, setPalette] = useState(false);
@@ -100,6 +157,12 @@ export default function App() {
       // Sélection non gardée : sans gravité.
     }
   }
+
+  useEffect(() => save(FILTER_KEY, filter), [filter]);
+  useEffect(() => {
+    save(LAYOUT_KEY, layout);
+    document.documentElement.style.fontSize = `${layout.fontSize}px`;
+  }, [layout]);
 
   const refreshVault = useCallback(() => {
     api.vaultInfo().then(setVault, () => setVault(null));
@@ -178,8 +241,14 @@ export default function App() {
     play(p);
   }
 
-  function openInLive() {
-    if (selected !== null) api.openInAbleton(selected).catch(toastError("Ouverture impossible"));
+  function openInLive(id = selected) {
+    if (id === null) return;
+    save(LAST_OPENED_KEY, id);
+    api.openInAbleton(id).catch(toastError("Ouverture impossible"));
+  }
+
+  function openFolder() {
+    if (selected !== null) api.openFolder(selected).catch(toastError("Dossier introuvable"));
   }
 
   // Glisser-déposer depuis l'explorateur Windows (évènements natifs de Tauri :
@@ -197,7 +266,7 @@ export default function App() {
   }
 
   function describeDrop(paths: string[], target: number | null): DropHint {
-    const { audio, folders, sets } = sortDrop(paths);
+    const { audio, folders } = sortDrop(paths);
     if (folders.length) {
       return {
         ok: true,
@@ -212,7 +281,6 @@ export default function App() {
         ? { ok: false, text: "Choisis d'abord un projet : le fichier deviendra son aperçu" }
         : { ok: true, text: `Faire de ce fichier l'aperçu de « ${projectName(target)} »` };
     }
-    if (sets.length) return { ok: false, text: "Dépose plutôt le dossier du projet" };
     return { ok: false, text: "Dépose un dossier de projets ou un fichier audio" };
   }
 
@@ -226,7 +294,7 @@ export default function App() {
           await api.addRoot(f);
           added++;
         } catch (e) {
-          toast(`Impossible d'ajouter ${f} : ${e}`);
+          toast(`Impossible d'ajouter ${f} : ${friendlyError(e)}`);
         }
       }
       refreshRoots();
@@ -245,7 +313,7 @@ export default function App() {
         await refresh();
         setWorkspaceKey((k) => k + 1);
       } catch (e) {
-        toast(`Import de l'aperçu impossible : ${e}`);
+        toast(`Import de l'aperçu impossible : ${friendlyError(e)}`);
       }
     }
   }
@@ -293,7 +361,28 @@ export default function App() {
     palette: () => setPalette((v) => !v),
     openInLive,
     help: () => setHelp(true),
+    openFolder,
+    undo: () => {
+      if (!undoLast()) toast("Rien à annuler");
+    },
+    toggleSidebar: () => setLayout((l) => ({ ...l, sidebar: !l.sidebar })),
+    toggleFocus: () => setLayout((l) => ({ ...l, focus: !l.focus })),
+    zoom: (d) => setLayout((l) => ({ ...l, fontSize: Math.min(18, Math.max(12, l.fontSize + d)) })),
   });
+
+  // Icône de la barre des tâches : « Ouvrir le dernier projet ».
+  useEffect(() => {
+    const un = listen("tray-open-last", () => {
+      const id = lastOpened();
+      if (id) openRef.current(id);
+      else toast("Aucun projet ouvert récemment");
+    });
+    return () => {
+      un.then((f) => f());
+    };
+  }, []);
+  const openRef = useRef(openInLive);
+  openRef.current = openInLive;
 
   async function scan() {
     setScanning(true);
@@ -306,7 +395,7 @@ export default function App() {
       if (r.errors.length) console.warn("Fichiers illisibles", r.errors);
       await refresh();
     } catch (e) {
-      toast(`Erreur de scan : ${e}`);
+      toast(`Erreur de scan : ${friendlyError(e)}`);
     } finally {
       setScanning(false);
       setProgress(null);
@@ -318,15 +407,34 @@ export default function App() {
     const hint = current?.name;
     const none = selected === null;
     return [
-      { id: "live", label: "Ouvrir dans Live", hint, disabled: none, keywords: "ableton ctrl+o", run: openInLive },
+      { id: "live", label: "Ouvrir dans Live", hint, disabled: none, keywords: "ableton ctrl+o", run: () => openInLive() },
+      { id: "folder", label: "Ouvrir le dossier du projet", hint, disabled: none, keywords: "explorateur windows ctrl+e", run: openFolder },
       {
-        id: "folder",
-        label: "Ouvrir le dossier du projet",
-        hint,
-        disabled: none,
-        keywords: "explorateur",
-        run: () => api.openFolder(selected!).catch(toastError("Dossier introuvable")),
+        id: "last",
+        label: "Ouvrir le dernier projet dans Live",
+        keywords: "récent reprendre",
+        run: () => {
+          const id = lastOpened();
+          if (id) openInLive(id);
+          else toast("Aucun projet ouvert récemment");
+        },
       },
+      { id: "undo", label: "Annuler la dernière action", keywords: "ctrl+z défaire", run: () => undoLast() || toast("Rien à annuler") },
+      {
+        id: "sidebar",
+        label: layout.sidebar ? "Replier la barre latérale" : "Déplier la barre latérale",
+        keywords: "ctrl+b panneau",
+        run: () => setLayout((l) => ({ ...l, sidebar: !l.sidebar })),
+      },
+      {
+        id: "focus",
+        label: layout.focus ? "Quitter le mode focus" : "Mode focus",
+        keywords: "plein écran ctrl+shift+f",
+        run: () => setLayout((l) => ({ ...l, focus: !l.focus })),
+      },
+      { id: "bigger", label: "Agrandir le texte", keywords: "police densité zoom ctrl++", run: () => setLayout((l) => ({ ...l, fontSize: Math.min(18, l.fontSize + 1) })) },
+      { id: "smaller", label: "Réduire le texte", keywords: "police densité compact ctrl+-", run: () => setLayout((l) => ({ ...l, fontSize: Math.max(12, l.fontSize - 1) })) },
+      { id: "resetfilter", label: "Effacer les filtres", keywords: "réinitialiser recherche", run: () => setFilter({}) },
       {
         id: "play",
         label: "Écouter / arrêter l'aperçu",
@@ -369,14 +477,32 @@ export default function App() {
       : "off";
 
   return (
-    <div className="app">
+    <div className={`app ${layout.sidebar && !layout.focus ? "" : "sidebar-hidden"} ${layout.focus ? "focus" : ""}`}>
+      {(!layout.sidebar || layout.focus) && (
+        <button
+          className="icon sidebar-toggle"
+          onClick={() => setLayout((l) => ({ ...l, sidebar: true, focus: false }))}
+          title={withKey("Afficher la barre latérale", "Ctrl+B")}
+          aria-label="Afficher la barre latérale"
+        >
+          ☰
+        </button>
+      )}
       <aside className="explorer">
         <header className="explorer-head">
+          <button
+            className="icon"
+            onClick={() => setLayout((l) => ({ ...l, sidebar: false }))}
+            title={withKey("Replier la barre latérale", "Ctrl+B")}
+            aria-label="Replier la barre latérale"
+          >
+            ‹
+          </button>
           <h1>Ableton Manager</h1>
           <button
             onClick={scan}
             disabled={scanning || roots.length === 0}
-            title="Rechercher les projets nouveaux ou modifiés"
+            title="Rechercher les projets nouveaux ou modifiés (tu peux continuer à travailler pendant le scan)"
           >
             {scanning ? "Scan…" : "Scanner"}
           </button>
@@ -394,7 +520,7 @@ export default function App() {
           <button
             className="icon doctor-btn"
             onClick={() => emit("am:open-doctor")}
-            title="Santé de la bibliothèque : samples introuvables, plugins manquants…"
+            title={withKey("Santé de la bibliothèque : samples introuvables, plugins manquants…", "Ctrl+K")}
             aria-label="Santé de la bibliothèque"
           >
             🩺
@@ -402,14 +528,14 @@ export default function App() {
           <button
             className="icon settings-btn"
             onClick={() => setSettings(true)}
-            title="Réglages : dossiers, coffre, pré-écoute"
+            title={withKey("Réglages : dossiers, coffre, pré-écoute", "Ctrl+K")}
             aria-label="Réglages"
           >
             ⚙<span className={`dot ${captureState}`} />
           </button>
         </header>
         {progress && (
-          <div className="progress">
+          <div className="progress" title={`${progress.done} / ${progress.total}`}>
             <progress value={progress.done} max={progress.total} />
             <small>{progress.current}</small>
           </div>
@@ -434,6 +560,7 @@ export default function App() {
               <button
                 className="icon"
                 onClick={() => play(null)}
+                title="Fermer le lecteur"
                 aria-label="Fermer le lecteur"
               >
                 ×
@@ -510,6 +637,17 @@ export default function App() {
         />
       )}
       {help && <ShortcutsHelp onClose={() => setHelp(false)} />}
+
+      {onboarding && (
+        <Onboarding
+          roots={roots}
+          onRootsChange={refreshRoots}
+          scanning={scanning}
+          onScan={scan}
+          capture={capture}
+          onClose={() => setOnboarding(false)}
+        />
+      )}
 
       {settings && (
         <SettingsDialog

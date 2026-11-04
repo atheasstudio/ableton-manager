@@ -134,3 +134,31 @@ mod tests {
         assert!(move_to_own_folder(&conn, 1).is_err(), "le dossier existe déjà");
     }
 }
+
+/// Zippe le dossier du projet `id` dans « <dossier>.zip », à côté de lui
+/// (remplacé s'il existe). Les samples doivent déjà être rassemblés.
+pub fn export_zip(conn: &Connection, id: i64) -> Result<String> {
+    let (_, folder) = db::als_path(conn, id)?.ok_or_else(|| Error::Other("projet introuvable".into()))?;
+    let folder = PathBuf::from(folder);
+    let zip = folder.with_extension("zip");
+    if zip.exists() {
+        fs::remove_file(&zip)?;
+    }
+    let script = format!(
+        "Compress-Archive -LiteralPath '{}' -DestinationPath '{}' -CompressionLevel Optimal",
+        folder.display().to_string().replace('\'', "''"),
+        zip.display().to_string().replace('\'', "''"),
+    );
+    let mut cmd = std::process::Command::new("powershell");
+    cmd.args(["-NoProfile", "-NonInteractive", "-Command", &script]);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    let out = cmd.output()?;
+    if !out.status.success() {
+        return Err(Error::Other(format!("zip impossible : {}", String::from_utf8_lossy(&out.stderr).trim())));
+    }
+    Ok(zip.display().to_string())
+}

@@ -243,8 +243,6 @@ export default function Workspace({ id, onChange, onVaultChange }: Props) {
             [
               ["timeline", "Timeline"],
               ["preview", "Aperçu"],
-              ["time", "Temps"],
-              ["infos", "Infos"],
             ] as const
           ).map(([k, label]) => (
             <button
@@ -255,6 +253,17 @@ export default function Workspace({ id, onChange, onVaultChange }: Props) {
               {label}
             </button>
           ))}
+          {/* Onglets secondaires repliés dans « Plus ». */}
+          <select
+            className={dock === "time" || dock === "infos" ? "active" : ""}
+            value={dock === "time" || dock === "infos" ? dock : ""}
+            onChange={(e) => setDock((e.target.value || null) as DockTab | null)}
+            title="Autres onglets"
+          >
+            <option value="">Plus…</option>
+            <option value="time">Temps</option>
+            <option value="infos">Infos</option>
+          </select>
           <span className="spacer" />
           <button onClick={() => setDock(dock ? null : "preview")} title="Replier / déplier">
             {dock ? "▾" : "▴"}

@@ -71,3 +71,6 @@ kbd { display: inline-block; min-width: 18px; padding: 1px 6px; border: 1px soli
 
 /* ---------- Barre de gauche ---------- */
 .explorer-head button.doctor-btn { padding: 4px 4px; font-size: 14px; }
+
+.toast-count { color: var(--muted); font-weight: 600; }
+.toast kbd { font-size: 10px; opacity: 0.7; margin-left: 4px; }

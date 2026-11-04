@@ -411,6 +411,8 @@ export const api = {
   /** Copie dans `Samples/Collected` les samples rangés hors du projet. */
   doctorCollectSamples: (projectId: number) => invoke<RelinkReport>("doctor_collect_samples", { projectId }),
   doctorPlugins: () => invoke<PluginUse[]>("doctor_plugins"),
+  doctorDuplicates: () => invoke<DuplicateProject[][]>("doctor_duplicates"),
+  exportProjectZip: (projectId: number) => invoke<string>("export_project_zip", { projectId }),
 
   /** La croix réduit dans la zone de notification au lieu de quitter. */
   closeToTray: () => invoke<boolean>("close_to_tray"),
@@ -484,4 +486,13 @@ export function formatAgo(seconds: number, now = Date.now() / 1000): string {
   if (days === 1) return "hier";
   if (days < 30) return `il y a ${days} jours`;
   return `le ${formatDate(seconds)}`;
+}
+
+/** Set d'un groupe de doublons (même nom). */
+export interface DuplicateProject {
+  id: number;
+  name: string;
+  folder: string;
+  als_path: string;
+  modified_at: number;
 }

@@ -25,13 +25,42 @@ export function toast(detail: ToastDetail | string) {
   );
 }
 
+/** Erreurs techniques courantes traduites en français simple, avec une piste. */
+const FRIENDLY: [RegExp, string][] = [
+  [/os error 2\b|not found|introuvable|no such file/i, "fichier ou dossier introuvable (déplacé ou supprimé ?). Relance un scan."],
+  [/os error 5\b|access is denied|permission denied/i, "accès refusé par Windows. Vérifie que le fichier n'est pas ouvert ailleurs."],
+  [/os error 32\b|being used by another process/i, "fichier utilisé par un autre programme (Live ?). Ferme-le puis réessaie."],
+  [/database is locked/i, "base occupée, réessaie dans un instant."],
+  [/timed? ?out|délai/i, "pas de réponse à temps. Live est-il ouvert ?"],
+  [/connection refused|11040/i, "Live ne répond pas. Ouvre Live et vérifie le Remote Script dans les réglages."],
+];
+
+export function friendlyError(e: unknown): string {
+  const raw = String(e);
+  const hit = FRIENDLY.find(([re]) => re.test(raw));
+  if (hit) console.warn(raw);
+  return hit ? hit[1] : raw;
+}
+
 /** Message d'erreur d'une promesse rejetée. */
 export function toastError(prefix: string) {
-  return (e: unknown) => toast(`${prefix} : ${e}`);
+  return (e: unknown) => toast(`${prefix} : ${friendlyError(e)}`);
 }
 
 interface Item extends ToastDetail {
   id: number;
+  /** Nombre de messages identiques regroupés. */
+  count: number;
+}
+
+/** Dernière notification annulable affichée (pour Ctrl+Z). */
+let lastUndo: (() => void) | null = null;
+
+/** Annule la dernière action annulable encore affichée (Ctrl+Z). */
+export function undoLast(): boolean {
+  if (!lastUndo) return false;
+  lastUndo();
+  return true;
 }
 
 let nextId = 1;
@@ -58,6 +87,12 @@ function ToastItem({ item, onDone }: { item: Item; onDone: (id: number) => void 
 
   useEffect(() => {
     if (item.commit) pending.set(item.id, item.commit);
+    if (!item.undo && !item.commit) return;
+    const undo = () => finish(true);
+    lastUndo = undo;
+    return () => {
+      if (lastUndo === undo) lastUndo = null;
+    };
   }, []);
 
   // Le survol suspend le décompte.
@@ -79,10 +114,13 @@ function ToastItem({ item, onDone }: { item: Item; onDone: (id: number) => void 
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
     >
-      <span className="toast-msg">{item.message}</span>
+      <span className="toast-msg">
+        {item.message}
+        {item.count > 1 && <span className="toast-count"> ×{item.count}</span>}
+      </span>
       {(item.undo || item.commit) && (
         <button className="link" onClick={() => finish(true)}>
-          Annuler
+          Annuler <kbd>Ctrl+Z</kbd>
         </button>
       )}
       <button className="icon" onClick={() => finish(false)} aria-label="Fermer">
@@ -109,7 +147,10 @@ export default function Toasts() {
       if (!d?.message) return;
       // Au-delà de 5, les plus anciennes simples partent (les actions en attente restent).
       setItems((all) => {
-        const next = [...all, { ...d, id: nextId++ }];
+        // Même message simple déjà affiché : on le regroupe au lieu d'empiler.
+        const same = !d.undo && !d.commit && all.find((t) => !t.undo && !t.commit && t.message === d.message);
+        if (same) return all.map((t) => (t === same ? { ...t, count: t.count + 1 } : t));
+        const next = [...all, { ...d, id: nextId++, count: 1 }];
         while (next.length > 5) {
           const i = next.findIndex((t) => !t.commit);
           if (i < 0) break;
@@ -136,7 +177,7 @@ export default function Toasts() {
   return (
     <div className="toasts" aria-live="polite">
       {items.map((t) => (
-        <ToastItem key={t.id} item={t} onDone={done} />
+        <ToastItem key={`${t.id}-${t.count}`} item={t} onDone={done} />
       ))}
     </div>
   );
