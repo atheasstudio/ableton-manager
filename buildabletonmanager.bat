@@ -22,7 +22,7 @@ call cargo build --release -p ableton-manager-mcp || goto :err
 if not exist "%MCPDIR%" mkdir "%MCPDIR%"
 copy /y "%DEST%\target\release\ableton-manager-mcp.exe" "%MCPDIR%\" >nul || goto :err
 
-echo Serveur MCP : %MCPDIR%bleton-manager-mcp.exe ^(a donner a ton IA locale^)
+echo Serveur MCP : %MCPDIR%\ableton-manager-mcp.exe ^(a donner a ton IA locale^)
 
 echo === Application ===
 call npm install || goto :err
