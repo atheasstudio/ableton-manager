@@ -1,4 +1,4 @@
-//! Serveur MCP en stdio : un agent (Claude Desktop, Claude Code…) lit la base
+//! Serveur MCP en stdio : un agent (IA locale) lit la base
 //! d'Ableton Manager. Lecture seule, sauf ajouter / cocher une tâche.
 //!
 //! Base : `ABLETON_MANAGER_DB`, sinon `%APPDATA%\studio.atheas.ableton-manager\library.db`.

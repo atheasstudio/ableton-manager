@@ -166,23 +166,20 @@ ALS_FIXTURES="F:/musique/Projets" cargo test --workspace -- --nocapture
 
 La base est stockée dans `%APPDATA%\studio.atheas.ableton-manager\library.db`.
 
-## Agent MCP (Claude Desktop, Claude Code…)
+## Agent MCP (IA locale)
 
-`crates/mcp` est un petit serveur MCP qui lit la base de l'appli : projets et leur emplacement, statuts, tags, pistes, plugins, samples, tâches, versions, annotations, temps de travail. Il peut aussi ajouter et cocher une tâche, ouvrir un projet dans Live et sortir le MP3 d'aperçu d'un projet.
+`crates/mcp` est un petit serveur MCP (stdio) qui lit la base de l'appli : projets et leur emplacement, statuts, tags, pistes, plugins, samples, tâches, versions, annotations, temps de travail. Il peut aussi ajouter et cocher une tâche, ouvrir un projet dans Live et sortir le MP3 d'aperçu d'un projet. Tout reste sur la machine.
 
-1. Le plus simple : `buildabletonmanager.bat` compile tout et branche Claude Desktop tout seul. Sinon : `cargo build --release -p ableton-manager-mcp`.
-2. Claude Desktop : Paramètres → Développeur → Modifier la config (`%APPDATA%\Claude\claude_desktop_config.json`) :
+`buildabletonmanager.bat` le compile et le copie dans `%LOCALAPPDATA%\AbletonManager\mcp\ableton-manager-mcp.exe`. Dans le client de l'IA locale (LM Studio, AnythingLLM, Open WebUI via mcpo…), ajouter un serveur MCP en commande :
 
 ```json
 {
   "mcpServers": {
     "ableton-manager": {
-      "command": "C:\\Users\\<toi>\\ableton-manager\\target\\release\\ableton-manager-mcp.exe"
+      "command": "C:\\Users\\<toi>\\AppData\\Local\\AbletonManager\\mcp\\ableton-manager-mcp.exe"
     }
   }
 }
 ```
-
-3. Redémarrer Claude Desktop. Claude Code : `claude mcp add ableton-manager -- "C:\...\ableton-manager-mcp.exe"`.
 
 La base lue par défaut est `%APPDATA%\studio.atheas.ableton-manager\library.db` ; la variable `ABLETON_MANAGER_DB` permet d'en donner une autre.
