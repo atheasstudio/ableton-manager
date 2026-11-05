@@ -1,0 +1,9 @@
+[package]
+name = "ableton-manager-mcp"
+version = "0.1.0"
+edition = "2021"
+description = "Serveur MCP (stdio) qui expose la bibliothèque d'Ableton Manager à un agent"
+
+[dependencies]
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde_json = "1"
