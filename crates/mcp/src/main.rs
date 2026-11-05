@@ -67,6 +67,10 @@ fn tools() -> Value {
       {"name":"plugins","description":"Plugins utilisés, avec le nombre de projets qui les utilisent. Filtre optionnel sur le nom.",
        "inputSchema": s(json!({"nom":{"type":"string"}}), &[])},
       {"name":"dossiers_scannes","description":"Dossiers racines scannés par l'appli.","inputSchema": s(json!({}), &[])},
+      {"name":"ouvrir_projet","description":"Ouvre le .als du projet dans Ableton Live (comme un double-clic).",
+       "inputSchema": s(json!({"id":{"type":"integer"}}), &["id"])},
+      {"name":"apercu_audio","description":"Copie le dernier aperçu audio (MP3) du projet dans un dossier temporaire et renvoie son chemin, pour l'écouter ou l'envoyer.",
+       "inputSchema": s(json!({"id":{"type":"integer"},"ouvrir":{"type":"boolean","description":"le lire tout de suite"}}), &["id"])},
       {"name":"ajouter_tache","description":"Ajoute une tâche à un projet.",
        "inputSchema": s(json!({"projet_id":{"type":"integer"},"texte":{"type":"string"}}), &["projet_id","texte"])},
       {"name":"cocher_tache","description":"Marque une tâche faite (ou à refaire avec fait=false).",
@@ -126,6 +130,36 @@ fn call(name: &str, a: &Value) -> Result<Value, String> {
                 GROUP BY name ORDER BY projets DESC, name", &[&f])
         }
         "dossiers_scannes" => rows(&open(false)?, "SELECT id, path FROM roots", &[]),
+        "ouvrir_projet" => {
+            let c = open(false)?;
+            let als: String = c.query_row("SELECT als_path FROM projects WHERE id=?1", [i("id").ok_or("id manquant")?], |r| r.get(0))
+                .map_err(|_| "projet introuvable".to_string())?;
+            open_file(&als)?;
+            Ok(json!({"ouvert": als}))
+        }
+        "apercu_audio" => {
+            let c = open(false)?;
+            let id = i("id").ok_or("id manquant")?;
+            let (name, hash): (String, Option<String>) = c.query_row("SELECT name, preview_hash FROM projects WHERE id=?1", [id], |r| Ok((r.get(0)?, r.get(1)?)))
+                .map_err(|_| "projet introuvable".to_string())?;
+            let hash = hash.ok_or("pas encore d'aperçu pour ce projet")?;
+            let mut vault: PathBuf = c.query_row("SELECT value FROM settings WHERE key='vault_dir'", [], |r| r.get::<_, String>(0))
+                .map(PathBuf::from).unwrap_or_else(|_| db_path().with_file_name("vault"));
+            for _ in 0..8 {
+                match std::fs::read_to_string(vault.join("moved-to.txt")) {
+                    Ok(n) if !n.trim().is_empty() => vault = PathBuf::from(n.trim()),
+                    _ => break,
+                }
+            }
+            let src = vault.join("objects").join(&hash[..2]).join(&hash[2..]);
+            let dir = std::env::temp_dir().join("ableton-manager-mcp");
+            std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+            let safe: String = name.chars().map(|ch| if r#"\/:*?"<>|"#.contains(ch) { '_' } else { ch }).collect();
+            let dst = dir.join(format!("{safe}.mp3"));
+            std::fs::copy(&src, &dst).map_err(|e| format!("aperçu introuvable dans le coffre ({}) : {e}", src.display()))?;
+            if a.get("ouvrir").and_then(Value::as_bool).unwrap_or(false) { open_file(&dst.to_string_lossy())?; }
+            Ok(json!({"fichier": dst}))
+        }
         "ajouter_tache" => {
             let c = open(true)?;
             let pid = i("projet_id").ok_or("projet_id manquant")?;
@@ -145,6 +179,15 @@ fn call(name: &str, a: &Value) -> Result<Value, String> {
         }
         _ => Err(format!("outil inconnu : {name}")),
     }
+}
+
+/// Ouvre un fichier avec le programme associé (Live pour un .als).
+fn open_file(path: &str) -> Result<(), String> {
+    #[cfg(windows)]
+    let r = std::process::Command::new("cmd").args(["/C", "start", "", path]).spawn();
+    #[cfg(not(windows))]
+    let r = std::process::Command::new("xdg-open").arg(path).spawn();
+    r.map(|_| ()).map_err(|e| e.to_string())
 }
 
 fn handle(msg: &Value) -> Option<Value> {
