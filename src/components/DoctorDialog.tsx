@@ -291,6 +291,8 @@ function MissingSamples() {
 
 function Plugins({ onClose }: { onClose: () => void }) {
   const [plugins, setPlugins] = useState<PluginUse[] | null>(null);
+  const [missing, setMissing] = useState<Set<string> | null>(null);
+  const [onlyMissing, setOnlyMissing] = useState(false);
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
   const [users, setUsers] = useState<ProjectSummary[] | null>(null);
@@ -298,12 +300,15 @@ function Plugins({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     api.doctorPlugins().then(setPlugins, (e) => setError(String(e)));
+    api.missingPlugins().then((m) => setMissing(new Set(m)), () => setMissing(new Set()));
   }, []);
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return (plugins ?? []).filter((p) => !q || p.name.toLowerCase().includes(q));
-  }, [plugins, query]);
+    return (plugins ?? []).filter(
+      (p) => (!q || p.name.toLowerCase().includes(q)) && (!onlyMissing || missing?.has(p.name)),
+    );
+  }, [plugins, query, onlyMissing, missing]);
 
   function filterExplorer(plugin: string) {
     window.dispatchEvent(new CustomEvent("am:filter-plugin", { detail: { plugin } }));
@@ -340,6 +345,12 @@ function Plugins({ onClose }: { onClose: () => void }) {
           pour filtrer l'explorateur.
         </p>
       )}
+      {missing && missing.size > 0 && (
+        <label className="doctor-muted">
+          <input type="checkbox" checked={onlyMissing} onChange={(e) => setOnlyMissing(e.target.checked)} />{" "}
+          Seulement les {missing.size} plugin{missing.size > 1 ? "s" : ""} pas installé{missing.size > 1 ? "s" : ""}
+        </label>
+      )}
       <ul className="doctor-plugins">
         {shown.map((p) => (
           <li key={p.name}>
@@ -347,6 +358,11 @@ function Plugins({ onClose }: { onClose: () => void }) {
               <button className="link" onClick={() => filterExplorer(p.name)} title="Filtrer l'explorateur">
                 {p.name}
               </button>
+              {missing?.has(p.name) && (
+                <small className="doctor-missing" title="Introuvable dans les dossiers VST/VST3/CLAP de ce PC">
+                  ⚠ pas installé
+                </small>
+              )}
               <button className="doctor-count" onClick={() => toggleUsers(p.name)} title="Quels projets ?">
                 {p.projects} projet{p.projects > 1 ? "s" : ""}
               </button>
