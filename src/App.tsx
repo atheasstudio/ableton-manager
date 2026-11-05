@@ -9,6 +9,7 @@ import SettingsDialog, { DEFAULT_ROOT } from "./components/SettingsDialog";
 import Onboarding, { ONBOARDED_KEY } from "./components/Onboarding";
 import Toasts, { friendlyError, toast, toastError, undoLast } from "./components/Toasts";
 import Workspace from "./components/Workspace";
+import { openInLive as openChecked } from "./components/Extras";
 import { emit, useShortcuts, withKey } from "./shortcuts";
 import "./ui.css";
 
@@ -244,7 +245,7 @@ export default function App() {
   function openInLive(id = selected) {
     if (id === null) return;
     save(LAST_OPENED_KEY, id);
-    api.openInAbleton(id).catch(toastError("Ouverture impossible"));
+    openChecked(id);
   }
 
   function openFolder() {

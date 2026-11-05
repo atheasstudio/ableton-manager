@@ -8,6 +8,7 @@ import { toast } from "./Toasts";
 import TimelineTab from "./TimelineTab";
 import VersionsTab from "./VersionsTab";
 import WorktimeTab, { worktimeProject } from "./WorktimeTab";
+import { CloudButton, ExportsTab, openInLive, TodosTab } from "./Extras";
 
 interface Props {
   id: number;
@@ -17,7 +18,7 @@ interface Props {
   onVaultChange: () => void;
 }
 
-type DockTab = "timeline" | "preview" | "time" | "infos";
+type DockTab = "timeline" | "preview" | "todos" | "exports" | "time" | "infos";
 
 const KIND_LABELS = { audio: "Audio", midi: "MIDI", group: "Groupe", return: "Retour" };
 const DOCK_KEY = "workspace.dock";
@@ -213,10 +214,11 @@ export default function Workspace({ id, onChange, onVaultChange }: Props) {
           ))}
         </select>
         <div className="actions">
-          <button className="primary" onClick={() => api.openInAbleton(id)}>
+          <button className="primary" onClick={() => openInLive(id)}>
             Ouvrir dans Live
           </button>
           <button onClick={() => api.openFolder(id)}>Dossier</button>
+          <CloudButton projectId={id} />
           {shared && (
             <button
               onClick={moveToOwnFolder}
@@ -243,6 +245,7 @@ export default function Workspace({ id, onChange, onVaultChange }: Props) {
             [
               ["timeline", "Timeline"],
               ["preview", "Aperçu"],
+              ["todos", "Tâches"],
             ] as const
           ).map(([k, label]) => (
             <button
@@ -255,12 +258,13 @@ export default function Workspace({ id, onChange, onVaultChange }: Props) {
           ))}
           {/* Onglets secondaires repliés dans « Plus ». */}
           <select
-            className={dock === "time" || dock === "infos" ? "active" : ""}
-            value={dock === "time" || dock === "infos" ? dock : ""}
+            className={dock === "time" || dock === "infos" || dock === "exports" ? "active" : ""}
+            value={dock === "time" || dock === "infos" || dock === "exports" ? dock : ""}
             onChange={(e) => setDock((e.target.value || null) as DockTab | null)}
             title="Autres onglets"
           >
             <option value="">Plus…</option>
+            <option value="exports">Exports</option>
             <option value="time">Temps</option>
             <option value="infos">Infos</option>
           </select>
@@ -273,6 +277,16 @@ export default function Workspace({ id, onChange, onVaultChange }: Props) {
         {dock && (
           <div className="dock-body">
             {dock === "timeline" && <TimelineTab projectId={id} />}
+            {dock === "todos" && <TodosTab projectId={id} />}
+            {dock === "exports" && (
+              <ExportsTab
+                projectId={id}
+                onPreview={() => {
+                  load();
+                  onChange();
+                }}
+              />
+            )}
             {dock === "preview" && (
               <PreviewSection
                 project={project}

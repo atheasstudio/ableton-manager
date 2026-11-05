@@ -4,6 +4,7 @@ mod capture;
 mod commands;
 mod db;
 mod doctor;
+mod extras;
 mod files;
 mod live;
 mod live_window;
@@ -162,6 +163,17 @@ pub fn run() {
             commands::set_close_to_tray,
             commands::autostart_enabled,
             commands::set_autostart_enabled,
+            commands::cloud_info,
+            commands::set_cloud_dir,
+            commands::cloud_backup,
+            commands::project_missing_samples,
+            commands::list_exports,
+            commands::missing_plugins,
+            commands::list_todos,
+            commands::add_todo,
+            commands::set_todo_done,
+            commands::delete_todo,
+            commands::open_export,
         ])
         .run(tauri::generate_context!())
         .expect("erreur au lancement de l'application");

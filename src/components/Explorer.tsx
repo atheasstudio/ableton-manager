@@ -3,6 +3,7 @@ import { ask, open } from "@tauri-apps/plugin-dialog";
 import { api, Filter, formatAgo, formatDuration, ProjectSummary, STATUS_LABELS, Status } from "../api";
 import { formatSpan } from "../api-explorer";
 import { toast } from "./Toasts";
+import { openInLive } from "./Extras";
 import Collections from "./Collections";
 import ProjectCard from "./ProjectCard";
 import ContextMenu, { MenuItem, MenuState } from "./ContextMenu";
@@ -321,7 +322,7 @@ export default function Explorer(props: Props) {
       x: e.clientX,
       y: e.clientY,
       items: [
-        { label: "▶ Ouvrir dans Live", action: () => api.openInAbleton(p.id) },
+        { label: "▶ Ouvrir dans Live", action: () => openInLive(p.id) },
         { label: "Ouvrir le dossier", action: () => api.openFolder(p.id) },
         ...COLORS.map((c) => ({
           label: c ? `Couleur ● ${c}` : "Sans couleur",
@@ -496,7 +497,7 @@ export default function Explorer(props: Props) {
     "data-id": p.id,
     onPointerDown: (e: React.PointerEvent) => onItemPointerDown(e, p),
     onClick: (e: React.MouseEvent) => clickItem(e, p.id),
-    onDoubleClick: () => api.openInAbleton(p.id).catch((err) => toast(`Erreur : ${err}`)),
+    onDoubleClick: () => openInLive(p.id),
     onContextMenu: (e: React.MouseEvent) => projectMenu(e, p, inGroup),
     title: p.folder,
   });
@@ -716,7 +717,7 @@ export default function Explorer(props: Props) {
             <button
               key={p.id}
               title={`Ouvrir dans Live (dernière session ${formatAgo(p.last_worked_at!)})`}
-              onClick={() => api.openInAbleton(p.id).catch((err) => toast(`Erreur : ${err}`))}
+              onClick={() => openInLive(p.id)}
             >
               ▶ {p.name}
             </button>

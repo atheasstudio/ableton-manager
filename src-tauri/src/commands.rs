@@ -1009,3 +1009,101 @@ pub async fn export_project_zip(app: AppHandle, project_id: i64) -> Result<Strin
     })
     .await
 }
+
+// ---------- Cloud, exports, plugins absents, tâches ----------
+
+use crate::extras;
+
+#[derive(Serialize)]
+pub struct CloudInfo {
+    pub dir: Option<String>,
+    pub last_backup: Option<i64>,
+}
+
+/// Dossier cloud choisi et date de la dernière sauvegarde du projet.
+#[tauri::command]
+pub fn cloud_info(state: State<AppState>, project_id: Option<i64>) -> Result<CloudInfo> {
+    let conn = state.db.lock().unwrap();
+    let dir = extras::cloud_dir(&conn).map_err(Error::Other)?;
+    let last_backup = match project_id {
+        Some(id) => extras::last_backup(&conn, id).map_err(Error::Other)?,
+        None => None,
+    };
+    Ok(CloudInfo { dir, last_backup })
+}
+
+#[tauri::command]
+pub fn set_cloud_dir(state: State<AppState>, dir: String) -> Result<()> {
+    extras::set_cloud_dir(&state.db.lock().unwrap(), &dir).map_err(Error::Other)
+}
+
+/// Rassemble les samples dans le projet, puis copie le dossier dans le cloud.
+#[tauri::command]
+pub async fn cloud_backup(app: AppHandle, project_id: i64) -> Result<extras::BackupReport> {
+    blocking(app, move |app| {
+        let state = app.state::<AppState>();
+        let mut conn = state.open_db()?;
+        let cloud = extras::cloud_dir(&conn)
+            .map_err(Error::Other)?
+            .ok_or_else(|| Error::Other("choisis d'abord un dossier cloud dans les réglages".into()))?;
+        let vault = state.vault(&conn)?;
+        let open = live_window::current_set();
+        doctor::collect_samples(&mut conn, &vault, project_id, open.as_ref(), now())?;
+        let (_, folder) = db::als_path(&conn, project_id)?
+            .ok_or_else(|| Error::Other("projet introuvable".into()))?;
+        let report = extras::backup_folder(Path::new(&folder), Path::new(&cloud)).map_err(Error::Other)?;
+        extras::set_last_backup(&conn, project_id, now()).map_err(Error::Other)?;
+        Ok(report)
+    })
+    .await
+}
+
+#[tauri::command]
+pub fn project_missing_samples(state: State<AppState>, project_id: i64) -> Result<Vec<String>> {
+    extras::missing_samples(&state.db.lock().unwrap(), project_id).map_err(Error::Other)
+}
+
+#[tauri::command]
+pub fn list_exports(state: State<AppState>, project_id: i64) -> Result<Vec<extras::ExportFile>> {
+    let (_, folder) = paths(&state, project_id)?;
+    Ok(extras::list_exports(Path::new(&folder)))
+}
+
+#[tauri::command]
+pub async fn missing_plugins(app: AppHandle) -> Result<Vec<String>> {
+    blocking(app, |app| {
+        let conn = app.state::<AppState>().open_db()?;
+        extras::missing_plugins(&conn).map_err(Error::Other)
+    })
+    .await
+}
+
+#[tauri::command]
+pub fn list_todos(state: State<AppState>, project_id: Option<i64>) -> Result<Vec<extras::Todo>> {
+    extras::list_todos(&state.db.lock().unwrap(), project_id).map_err(Error::Other)
+}
+
+#[tauri::command]
+pub fn add_todo(state: State<AppState>, project_id: i64, text: String) -> Result<i64> {
+    extras::add_todo(&state.db.lock().unwrap(), project_id, &text, now()).map_err(Error::Other)
+}
+
+#[tauri::command]
+pub fn set_todo_done(state: State<AppState>, id: i64, done: bool) -> Result<()> {
+    extras::set_todo_done(&state.db.lock().unwrap(), id, done).map_err(Error::Other)
+}
+
+#[tauri::command]
+pub fn delete_todo(state: State<AppState>, id: i64) -> Result<()> {
+    extras::delete_todo(&state.db.lock().unwrap(), id).map_err(Error::Other)
+}
+
+/// Ouvre un export avec le lecteur par défaut de Windows.
+#[tauri::command]
+pub fn open_export(app: AppHandle, state: State<AppState>, project_id: i64, path: String) -> Result<()> {
+    let (_, folder) = paths(&state, project_id)?;
+    if !Path::new(&path).starts_with(&folder) {
+        return Err(Error::Other("fichier hors du projet".into()));
+    }
+    app.opener().open_path(path, None::<&str>).map_err(|e| Error::Other(e.to_string()))
+}

@@ -414,6 +414,18 @@ export const api = {
   doctorDuplicates: () => invoke<DuplicateProject[][]>("doctor_duplicates"),
   exportProjectZip: (projectId: number) => invoke<string>("export_project_zip", { projectId }),
 
+  cloudInfo: (projectId?: number) => invoke<CloudInfo>("cloud_info", { projectId: projectId ?? null }),
+  setCloudDir: (dir: string) => invoke<void>("set_cloud_dir", { dir }),
+  cloudBackup: (projectId: number) => invoke<BackupReport>("cloud_backup", { projectId }),
+  projectMissingSamples: (projectId: number) => invoke<string[]>("project_missing_samples", { projectId }),
+  listExports: (projectId: number) => invoke<ExportFile[]>("list_exports", { projectId }),
+  missingPlugins: () => invoke<string[]>("missing_plugins"),
+  listTodos: (projectId?: number) => invoke<Todo[]>("list_todos", { projectId: projectId ?? null }),
+  addTodo: (projectId: number, text: string) => invoke<number>("add_todo", { projectId, text }),
+  setTodoDone: (id: number, done: boolean) => invoke<void>("set_todo_done", { id, done }),
+  deleteTodo: (id: number) => invoke<void>("delete_todo", { id }),
+  openExport: (projectId: number, path: string) => invoke<void>("open_export", { projectId, path }),
+
   /** La croix réduit dans la zone de notification au lieu de quitter. */
   closeToTray: () => invoke<boolean>("close_to_tray"),
   setCloseToTray: (enabled: boolean) => invoke<void>("set_close_to_tray", { enabled }),
@@ -495,4 +507,32 @@ export interface DuplicateProject {
   folder: string;
   als_path: string;
   modified_at: number;
+}
+
+export interface CloudInfo {
+  dir: string | null;
+  last_backup: number | null;
+}
+
+export interface BackupReport {
+  dest: string;
+  copied: number;
+  unchanged: number;
+  bytes: number;
+}
+
+export interface ExportFile {
+  path: string;
+  name: string;
+  size: number;
+  modified: number;
+}
+
+export interface Todo {
+  id: number;
+  project_id: number;
+  project_name: string;
+  text: string;
+  done: boolean;
+  created_at: number;
 }
