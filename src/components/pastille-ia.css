@@ -1,0 +1,14 @@
+/* Pastille « par l'IA » : style minimal en attendant la charte commune
+   (atheas-charte.css), qui l'emporte grâce à :where() (spécificité nulle). */
+:where(.at-pastille-ia) {
+  display: inline-block;
+  margin-left: 0.4em;
+  padding: 0 0.45em;
+  border-radius: 999px;
+  font-size: 0.75em;
+  line-height: 1.5;
+  white-space: nowrap;
+  color: #7c9cff;
+  border: 1px solid currentColor;
+  opacity: 0.9;
+}

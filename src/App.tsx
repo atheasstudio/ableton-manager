@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { api, CaptureStatus, Filter, ProjectSummary, Root, ScanProgress, VaultInfo } from "./api";
+import { api, BIBLIO_CHANGEE, CaptureStatus, Filter, OUVRIR_PROJET, ProjectSummary, Root, ScanProgress, VaultInfo } from "./api";
 import Explorer from "./components/Explorer";
 import CommandPalette, { PaletteAction, ShortcutsHelp } from "./components/CommandPalette";
 import PreviewPlayer, { PlayerHandle } from "./components/PreviewPlayer";
@@ -194,10 +194,17 @@ export default function App() {
     const timer = setInterval(pollCapture, 5000);
     // Un nouvel aperçu change l'icône d'écoute de la liste.
     const unlistenPreview = listen("preview-changed", () => refreshRef.current());
+    // L'IA (porte MCP) a changé un statut, un tag ou une tâche.
+    const unlistenBiblio = listen(BIBLIO_CHANGEE, () => refreshRef.current());
+    // `--ouvrir <ref>` : au lancement, puis reçu par l'instance déjà ouverte.
+    api.prendreProjetAOuvrir().then((id) => id !== null && setSelected(id), () => {});
+    const unlistenOuvrir = listen<{ project_id: number }>(OUVRIR_PROJET, (e) => setSelected(e.payload.project_id));
     return () => {
       clearInterval(timer);
       unlisten.then((f) => f());
       unlistenPreview.then((f) => f());
+      unlistenBiblio.then((f) => f());
+      unlistenOuvrir.then((f) => f());
     };
   }, []);
 

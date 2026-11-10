@@ -425,6 +425,8 @@ export const api = {
   setTodoDone: (id: number, done: boolean) => invoke<void>("set_todo_done", { id, done }),
   deleteTodo: (id: number) => invoke<void>("delete_todo", { id }),
   openExport: (projectId: number, path: string) => invoke<void>("open_export", { projectId, path }),
+  /** Projet demandé par `--ouvrir <ref>` au lancement (rendu une seule fois). */
+  prendreProjetAOuvrir: () => invoke<number | null>("prendre_projet_a_ouvrir"),
 
   /** La croix réduit dans la zone de notification au lieu de quitter. */
   closeToTray: () => invoke<boolean>("close_to_tray"),
@@ -535,4 +537,11 @@ export interface Todo {
   text: string;
   done: boolean;
   created_at: number;
+  /** "app" ou "ia" (ajoutée par la porte MCP). */
+  source: string;
 }
+
+/** La porte MCP (l'IA) a changé la bibliothèque : à recharger. */
+export const BIBLIO_CHANGEE = "am:biblio-changee";
+/** `--ouvrir <ref>` reçu par l'appli déjà ouverte : projet à sélectionner. */
+export const OUVRIR_PROJET = "am:ouvrir-projet";

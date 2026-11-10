@@ -1,6 +1,8 @@
 mod annotations;
+mod annuaire;
 mod audio;
 mod capture;
+mod changements;
 mod commands;
 mod db;
 mod doctor;
@@ -9,6 +11,7 @@ mod files;
 mod live;
 mod live_window;
 mod notes;
+mod ouvrir;
 mod organize;
 mod previews;
 mod scanner;
@@ -51,12 +54,18 @@ impl AppState {
     }
 }
 
+/// Ouvre la base de l'appli (et la migre) : sert aux tests de la porte MCP,
+/// qui partent ainsi du vrai schéma.
+pub fn ouvrir_base(path: &std::path::Path) -> rusqlite::Result<rusqlite::Connection> {
+    db::open(path)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         // En premier : une deuxième instance (raccourci, démarrage) réaffiche
         // simplement la fenêtre de la première, cachée dans la zone de notification.
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| tray::show(app)))
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| ouvrir::seconde_instance(app, &args)))
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec![tray::HIDDEN_ARG]),
@@ -68,11 +77,15 @@ pub fn run() {
             std::fs::create_dir_all(&dir)?;
             let db_path = dir.join("library.db");
             let conn = db::open(&db_path)?;
+            annuaire::publier(&app.package_info().version.to_string(), &db_path);
+            changements::start(app.handle().clone(), db_path.clone());
             app.manage(AppState {
                 db: Mutex::new(conn),
                 db_path,
                 data_dir: dir.clone(),
             });
+            app.manage(ouvrir::EnAttente::default());
+            ouvrir::au_demarrage(app.handle());
             app.manage(watcher::SaveWatcher::start(app.handle().clone()));
             app.manage(capture::CaptureLink::start(
                 app.handle().clone(),
@@ -174,6 +187,7 @@ pub fn run() {
             commands::set_todo_done,
             commands::delete_todo,
             commands::open_export,
+            commands::prendre_projet_a_ouvrir,
         ])
         .run(tauri::generate_context!())
         .expect("erreur au lancement de l'application");

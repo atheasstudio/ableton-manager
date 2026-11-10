@@ -168,7 +168,13 @@ La base est stockée dans `%APPDATA%\studio.atheas.ableton-manager\library.db`.
 
 ## Agent MCP (IA locale)
 
-`crates/mcp` est un petit serveur MCP (stdio) qui lit la base de l'appli : projets et leur emplacement, statuts, tags, pistes, plugins, samples, tâches, versions, annotations, temps de travail. Il peut aussi ajouter et cocher une tâche, ouvrir un projet dans Live et sortir le MP3 d'aperçu d'un projet. Tout reste sur la machine.
+`crates/mcp` est la porte MCP (stdio) de l'appli, selon le contrat commun d'Atheas : refs `am:projet/<id>` (toujours avec `als_path`), `am:tache/<id>`, `am:version/<id>`, dates ISO UTC en `Z`, listes `{elements, total}`. Tout reste sur la machine.
+
+- Lecture : `lister_projets`, `projet`, `taches`, `plugins`, `dossiers_scannes`, `temps_de_travail` (minutes par jour et par projet), `versions_recentes`.
+- Modification : `ajouter_tache`, `cocher_tache`, `changer_statut`, `ajouter_tag`. Elles passent par le crate `crates/biblio` (même code que l'appli) et sont notées `source = "ia"` : l'appli les voit sans redémarrer et marque ces tâches « par l'IA ».
+- Sur ton clic seulement : `ouvrir_projet` (ouvre le set dans Live), `apercu_audio`.
+
+Au démarrage, l'appli écrit sa fiche d'annuaire `%LOCALAPPDATA%\Atheas\annuaire\am.json` (chemin de la porte, de la base et de l'exe). `ableton-manager.exe --ouvrir am:projet/42` (ou une ref de tâche ou de version) ouvre l'appli sur ce projet.
 
 `buildabletonmanager.bat` le compile et le copie dans `%LOCALAPPDATA%\AbletonManager\mcp\ableton-manager-mcp.exe`. Dans le client de l'IA locale (LM Studio, AnythingLLM, Open WebUI via mcpo…), ajouter un serveur MCP en commande :
 
