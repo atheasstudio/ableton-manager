@@ -209,7 +209,7 @@ export default function TimelineTab({ projectId }: Props) {
       <div className="live-status">
         <span
           className={`dot ${connected ? (here && !outdated ? "on" : "other") : "off"}`}
-          style={scriptMissing ? { background: "#e5534b" } : undefined}
+          style={scriptMissing ? { background: "var(--danger)" } : undefined}
         />
         <span className="live-text">
           {!status && "Recherche de Live…"}

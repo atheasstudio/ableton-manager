@@ -6,7 +6,7 @@
 .doctor-muted { color: var(--muted); }
 
 .doctor-projects, .doctor-samples, .doctor-plugins, .doctor-users { list-style: none; margin: 0; padding: 0; }
-.doctor-projects > li { border: 1px solid var(--border); border-radius: 6px; background: var(--bg); margin-bottom: 6px; }
+.doctor-projects > li { border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); margin-bottom: 6px; }
 .doctor-projects summary { display: flex; align-items: center; gap: 8px; padding: 8px 10px; cursor: pointer; }
 .doctor-projects details > .actions { padding: 0 10px 10px; }
 .doctor-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -17,7 +17,7 @@ button.doctor-count:hover { color: var(--text); }
 .doctor-samples > li { display: flex; flex-direction: column; gap: 3px; border-top: 1px solid var(--border); padding-top: 6px; }
 .doctor-sample { display: flex; flex-direction: column; min-width: 0; }
 .doctor-sample small, .doctor-samples small { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.doctor-samples select { width: 100%; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 3px; }
+.doctor-samples select { width: 100%; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 3px; }
 
 .doctor-plugins > li { border-bottom: 1px solid var(--border); padding: 4px 0; }
 .doctor-plugin { display: flex; align-items: center; gap: 8px; }
@@ -28,5 +28,5 @@ button.doctor-count:hover { color: var(--text); }
 .doctor-dups { list-style: none; margin: 0; padding: 0; }
 .doctor-dups li { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
 .doctor-dups .doctor-sample { flex: 1; min-width: 0; }
-.doctor-badge { font-size: 0.75em; margin-right: 6px; padding: 1px 6px; border-radius: 8px; background: var(--accent, #4a7); color: #fff; }
+.doctor-badge { font-size: 0.75em; margin-right: 6px; padding: 1px 6px; border-radius: var(--radius); background: var(--accent); color: var(--accent-fg); }
 .wt-summary { font-size: 1.05em; line-height: 1.6; margin: 0 0 12px; }
