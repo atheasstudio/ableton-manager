@@ -51,6 +51,8 @@
 :root[data-appli="lvl"], [data-appli="lvl"] { --at-accent: #f2b53c; --at-accent-fg: #1a1406; }
 :root[data-appli="am"], [data-appli="am"]  { --at-accent: #ff7a2f; --at-accent-fg: #1a0d04; }
 :root[data-appli="ia"], [data-appli="ia"]  { --at-accent: #7c9cff; --at-accent-fg: #0b1230; }
+/* Recalculée sur chaque élément marqué, pour suivre son accent. */
+[data-appli] { --at-accent-soft: color-mix(in srgb, var(--at-accent) 18%, var(--at-surface)); }
 
 /* ------------------------------------------------------------ clair */
 /* Les mêmes valeurs deux fois : bascule explicite, puis système. */
