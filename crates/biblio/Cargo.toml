@@ -1,0 +1,8 @@
+[package]
+name = "biblio"
+version = "0.1.0"
+edition = "2021"
+description = "Écritures sur la bibliothèque d'Ableton Manager, partagées par l'appli et sa porte MCP"
+
+[dependencies]
+rusqlite = { version = "0.32", features = ["bundled"] }

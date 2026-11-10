@@ -64,7 +64,7 @@ CREATE TABLE project_tags (
 CREATE INDEX tracks_project ON tracks(project_id);
 CREATE INDEX items_project ON project_items(project_id);
 
--- Index plein texte, reconstruit par refresh_search() à chaque changement.
+-- Index plein texte, reconstruit par biblio::refresh_search() à chaque changement.
 CREATE VIRTUAL TABLE search USING fts5(
     name, note, plugins, samples, tags,
     tokenize = 'unicode61 remove_diacritics 2'
@@ -234,6 +234,25 @@ CREATE TABLE todos (
 
 CREATE INDEX todos_project ON todos(project_id);
 "#,
+    r#"
+-- Qui a créé la tâche : 'app' (ethaniel dans l'appli) ou 'ia' (porte MCP).
+ALTER TABLE todos ADD COLUMN source TEXT NOT NULL DEFAULT 'app';
+
+-- Changements faits hors de l'appli (porte MCP) : statut, tag, tâche.
+-- Rempli par le crate biblio ; l'appli le surveille pour se recharger.
+CREATE TABLE changements_externes (
+    id       INTEGER PRIMARY KEY,
+    -- 'projet' ou 'tache'
+    objet    TEXT NOT NULL,
+    objet_id INTEGER NOT NULL,
+    -- 'statut', 'tag', 'ajout', 'cocher', 'decocher'
+    action   TEXT NOT NULL,
+    valeur   TEXT,
+    source   TEXT NOT NULL,
+    -- secondes depuis 1970
+    le       INTEGER NOT NULL
+);
+"#,
 ];
 
 pub fn open(path: &Path) -> Result<Connection> {
@@ -337,7 +356,7 @@ pub fn mark_seen(
             [id],
         )?;
         insert_sets(&tx, id, other_sets)?;
-        refresh_search(&tx, id)?;
+        biblio::refresh_search(&tx, id)?;
     }
     tx.commit()
 }
@@ -410,7 +429,7 @@ pub fn upsert_project(conn: &mut Connection, p: &ScannedProject, now: i64) -> Re
         }
     }
     insert_sets(&tx, id, p.other_sets)?;
-    refresh_search(&tx, id)?;
+    biblio::refresh_search(&tx, id)?;
     tx.commit()?;
     Ok(id)
 }
@@ -456,21 +475,6 @@ pub fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<()> {
         "INSERT INTO settings (key, value) VALUES (?1, ?2)
          ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         params![key, value],
-    )?;
-    Ok(())
-}
-
-fn refresh_search(conn: &Connection, id: i64) -> Result<()> {
-    conn.execute("DELETE FROM search WHERE rowid = ?1", [id])?;
-    conn.execute(
-        "INSERT INTO search (rowid, name, note, plugins, samples, tags)
-         SELECT p.id, p.name, p.note,
-             (SELECT group_concat(name, ' ') FROM project_items WHERE project_id = p.id AND kind = 'plugin'),
-             (SELECT group_concat(name, ' ') FROM project_items WHERE project_id = p.id AND kind = 'sample'),
-             (SELECT group_concat(t.name, ' ') FROM project_tags pt JOIN tags t ON t.id = pt.tag_id
-                 WHERE pt.project_id = p.id)
-         FROM projects p WHERE p.id = ?1",
-        [id],
     )?;
     Ok(())
 }
@@ -809,16 +813,6 @@ pub fn save_collections(conn: &Connection, collections: &[Collection]) -> Result
 
 // ---------- Modifications par l'utilisateur ----------
 
-pub const STATUSES: &[&str] = &["idee", "en_cours", "fini", "abandonne"];
-
-pub fn set_status(conn: &Connection, id: i64, status: &str) -> Result<()> {
-    conn.execute(
-        "UPDATE projects SET status = ?2 WHERE id = ?1",
-        params![id, status],
-    )?;
-    Ok(())
-}
-
 pub fn set_favorite(conn: &Connection, id: i64, favorite: bool) -> Result<()> {
     conn.execute(
         "UPDATE projects SET favorite = ?2 WHERE id = ?1",
@@ -832,21 +826,7 @@ pub fn set_note(conn: &Connection, id: i64, note: &str) -> Result<()> {
         "UPDATE projects SET note = ?2 WHERE id = ?1",
         params![id, note],
     )?;
-    refresh_search(conn, id)
-}
-
-pub fn add_tag(conn: &Connection, id: i64, tag: &str) -> Result<()> {
-    let tag = tag.trim();
-    if tag.is_empty() {
-        return Ok(());
-    }
-    conn.execute("INSERT OR IGNORE INTO tags (name) VALUES (?1)", [tag])?;
-    conn.execute(
-        "INSERT OR IGNORE INTO project_tags (project_id, tag_id)
-         SELECT ?1, id FROM tags WHERE name = ?2",
-        params![id, tag],
-    )?;
-    refresh_search(conn, id)
+    biblio::refresh_search(conn, id)
 }
 
 pub fn remove_tag(conn: &Connection, id: i64, tag: &str) -> Result<()> {
@@ -855,7 +835,7 @@ pub fn remove_tag(conn: &Connection, id: i64, tag: &str) -> Result<()> {
              AND tag_id = (SELECT id FROM tags WHERE name = ?2)",
         params![id, tag],
     )?;
-    refresh_search(conn, id)
+    biblio::refresh_search(conn, id)
 }
 
 #[cfg(test)]
@@ -972,7 +952,7 @@ mod tests {
         let mut conn = open_in_memory().unwrap();
         let id = insert(&mut conn, "a.als", "Woodkid perc", 10);
         insert(&mut conn, "b.als", "Autre", 20);
-        add_tag(&conn, id, "cinématique").unwrap();
+        biblio::add_tag(&conn, id, "cinématique", biblio::SOURCE_APP).unwrap();
 
         let find = |q: &str| -> Vec<String> {
             let f = Filter {
@@ -1003,7 +983,7 @@ mod tests {
         let id = insert(&mut conn, "a.als", "Projet", 10);
         set_note(&conn, id, "garder le drop").unwrap();
         set_favorite(&conn, id, true).unwrap();
-        add_tag(&conn, id, "club").unwrap();
+        biblio::add_tag(&conn, id, "club", biblio::SOURCE_APP).unwrap();
 
         assert_eq!(insert(&mut conn, "a.als", "Projet", 50), id);
         let p = get_project(&conn, id).unwrap().unwrap();

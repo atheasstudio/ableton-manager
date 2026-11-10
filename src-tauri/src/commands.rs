@@ -32,6 +32,8 @@ pub enum Error {
     #[error("{0}")]
     Doctor(#[from] doctor::Error),
     #[error("{0}")]
+    Biblio(#[from] biblio::Erreur),
+    #[error("{0}")]
     Other(String),
 }
 
@@ -178,10 +180,7 @@ pub fn all_tags(state: State<AppState>) -> Result<Vec<String>> {
 
 #[tauri::command]
 pub fn set_status(state: State<AppState>, id: i64, status: String) -> Result<()> {
-    if !db::STATUSES.contains(&status.as_str()) {
-        return Err(Error::Other(format!("statut inconnu : {status}")));
-    }
-    Ok(db::set_status(&state.db.lock().unwrap(), id, &status)?)
+    Ok(biblio::set_status(&state.db.lock().unwrap(), id, &status, biblio::SOURCE_APP)?)
 }
 
 #[tauri::command]
@@ -196,7 +195,7 @@ pub fn set_note(state: State<AppState>, id: i64, note: String) -> Result<()> {
 
 #[tauri::command]
 pub fn add_tag(state: State<AppState>, id: i64, tag: String) -> Result<()> {
-    Ok(db::add_tag(&state.db.lock().unwrap(), id, &tag)?)
+    Ok(biblio::add_tag(&state.db.lock().unwrap(), id, &tag, biblio::SOURCE_APP)?)
 }
 
 #[tauri::command]
@@ -1085,12 +1084,12 @@ pub fn list_todos(state: State<AppState>, project_id: Option<i64>) -> Result<Vec
 
 #[tauri::command]
 pub fn add_todo(state: State<AppState>, project_id: i64, text: String) -> Result<i64> {
-    extras::add_todo(&state.db.lock().unwrap(), project_id, &text, now()).map_err(Error::Other)
+    Ok(biblio::add_todo(&state.db.lock().unwrap(), project_id, &text, now(), biblio::SOURCE_APP)?)
 }
 
 #[tauri::command]
 pub fn set_todo_done(state: State<AppState>, id: i64, done: bool) -> Result<()> {
-    extras::set_todo_done(&state.db.lock().unwrap(), id, done).map_err(Error::Other)
+    Ok(biblio::set_todo_done(&state.db.lock().unwrap(), id, done, biblio::SOURCE_APP)?)
 }
 
 #[tauri::command]

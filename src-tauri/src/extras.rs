@@ -6,7 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension};
 use serde::Serialize;
 use walkdir::WalkDir;
 
@@ -236,9 +236,11 @@ pub struct Todo {
     pub text: String,
     pub done: bool,
     pub created_at: i64,
+    /// 'app' ou 'ia' (ajoutée par la porte MCP).
+    pub source: String,
 }
 
-const TODO_SELECT: &str = "SELECT t.id, t.project_id, p.name, t.text, t.done, t.created_at
+const TODO_SELECT: &str = "SELECT t.id, t.project_id, p.name, t.text, t.done, t.created_at, t.source
      FROM todos t JOIN projects p ON p.id = t.project_id";
 
 fn todo_row(r: &rusqlite::Row) -> rusqlite::Result<Todo> {
@@ -249,6 +251,7 @@ fn todo_row(r: &rusqlite::Row) -> rusqlite::Result<Todo> {
         text: r.get(3)?,
         done: r.get::<_, i64>(4)? != 0,
         created_at: r.get(5)?,
+        source: r.get(6)?,
     })
 }
 
@@ -261,24 +264,6 @@ pub fn list_todos(conn: &Connection, project_id: Option<i64>) -> Result<Vec<Todo
     let mut stmt = conn.prepare(&q).map_err(sql)?;
     let rows = stmt.query_map([arg], todo_row).map_err(sql)?;
     rows.collect::<rusqlite::Result<_>>().map_err(sql)
-}
-
-pub fn add_todo(conn: &Connection, project_id: i64, text: &str, now: i64) -> Result<i64> {
-    let text = text.trim();
-    if text.is_empty() {
-        return Err("tâche vide".into());
-    }
-    conn.execute(
-        "INSERT INTO todos (project_id, text, done, created_at) VALUES (?1, ?2, 0, ?3)",
-        params![project_id, text, now],
-    )
-    .map_err(sql)?;
-    Ok(conn.last_insert_rowid())
-}
-
-pub fn set_todo_done(conn: &Connection, id: i64, done: bool) -> Result<()> {
-    conn.execute("UPDATE todos SET done = ?2 WHERE id = ?1", params![id, done as i64]).map_err(sql)?;
-    Ok(())
 }
 
 pub fn delete_todo(conn: &Connection, id: i64) -> Result<()> {
@@ -326,9 +311,9 @@ mod tests {
             [],
         )
         .unwrap();
-        let id = add_todo(&conn, 1, "  mix du kick ", 10).unwrap();
+        let id = biblio::add_todo(&conn, 1, "  mix du kick ", 10, biblio::SOURCE_APP).unwrap();
         assert_eq!(list_todos(&conn, None).unwrap()[0].text, "mix du kick");
-        set_todo_done(&conn, id, true).unwrap();
+        biblio::set_todo_done(&conn, id, true, biblio::SOURCE_APP).unwrap();
         assert!(list_todos(&conn, None).unwrap().is_empty());
         assert_eq!(list_todos(&conn, Some(1)).unwrap().len(), 1);
         delete_todo(&conn, id).unwrap();
