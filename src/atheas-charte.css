@@ -1,0 +1,163 @@
+/*
+ * Copie de la charte commune Atheas : modifier les trois dépôts ensemble.
+ * (ne pas modifier ici seul : copie de la charte commune)
+ *
+ * Même fichier, à l'identique, dans Level Up (src/styles/atheas-charte.css),
+ * Ableton Manager (src/atheas-charte.css) et l'IA (ui/src/atheas-charte.css).
+ * Référence : contrat commun, section 8.
+ *
+ * - Sombre par défaut ; clair sous [data-theme="light"] sur <html>, ou quand
+ *   le système est en clair (sauf si [data-theme="dark"] force le sombre).
+ * - Accent par appli : [data-appli="lvl|am|ia"] sur <html>, ou sur un élément (carte venue d'une autre appli).
+ * - Chaque appli branche ses propres variables sur les --at-* ; seules les
+ *   couleurs d'accent diffèrent d'une appli à l'autre.
+ */
+
+/* ------------------------------------------------------------ sombre (défaut) */
+:root {
+  --at-bg: #10131c;
+  --at-bg-raised: #171b27;
+  --at-surface: #1d2230;
+  --at-surface-hover: #252b3c;
+  --at-line: #2c3346;
+  --at-fg: #e7eaf2;
+  --at-fg-muted: #98a1b6;
+  --at-fg-faint: #6b7489;
+
+  /* Accent neutre si l'appli n'a pas posé data-appli. */
+  --at-accent: #98a1b6;
+  --at-accent-fg: #10131c;
+
+  --at-ok: #5fcf8f;
+  --at-warn: #f2b53c;
+  --at-danger: #e5534b;
+  /* Couleur de la pastille « par l'IA », la même dans les trois applis. */
+  --at-ia: #7c9cff;
+
+  --at-radius: 8px;
+  --at-radius-sm: 5px;
+  --at-font: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --at-font-display: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
+  --at-mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  --at-ombre: 0 8px 24px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
+
+  /* Calculées depuis l'accent : suivent l'appli et le thème d'elles-mêmes. */
+  --at-accent-soft: color-mix(in srgb, var(--at-accent) 18%, var(--at-surface));
+  --at-ia-soft: color-mix(in srgb, var(--at-ia) 18%, transparent);
+
+  color-scheme: dark;
+}
+
+:root[data-appli="lvl"], [data-appli="lvl"] { --at-accent: #f2b53c; --at-accent-fg: #1a1406; }
+:root[data-appli="am"], [data-appli="am"]  { --at-accent: #ff7a2f; --at-accent-fg: #1a0d04; }
+:root[data-appli="ia"], [data-appli="ia"]  { --at-accent: #7c9cff; --at-accent-fg: #0b1230; }
+/* Recalculée sur chaque élément marqué, pour suivre son accent. */
+[data-appli] { --at-accent-soft: color-mix(in srgb, var(--at-accent) 18%, var(--at-surface)); }
+
+/* ------------------------------------------------------------ clair */
+/* Les mêmes valeurs deux fois : bascule explicite, puis système. */
+:root[data-theme="light"] {
+  --at-bg: #f3f4f8;
+  --at-bg-raised: #ffffff;
+  --at-surface: #ffffff;
+  --at-surface-hover: #f0f2f7;
+  --at-line: #dde1ea;
+  --at-fg: #1a1f2c;
+  --at-fg-muted: #5a6378;
+  --at-fg-faint: #8a92a5;
+  --at-accent: #5a6378;
+  --at-accent-fg: #ffffff;
+  --at-ok: #237a4b;
+  --at-warn: #a35f07;
+  --at-danger: #c43535;
+  --at-ia: #3f55c9;
+  --at-ombre: 0 4px 16px rgba(16, 16, 24, 0.08), 0 1px 3px rgba(16, 16, 24, 0.06);
+  color-scheme: light;
+}
+/* Accents clairs : contraste ≥ 4.5:1 sur blanc, texte blanc dessus. */
+:root[data-theme="light"][data-appli="lvl"], :root[data-theme="light"] [data-appli="lvl"] { --at-accent: #8f6200; --at-accent-fg: #ffffff; }
+:root[data-theme="light"][data-appli="am"], :root[data-theme="light"] [data-appli="am"]  { --at-accent: #b54a0b; --at-accent-fg: #ffffff; }
+:root[data-theme="light"][data-appli="ia"], :root[data-theme="light"] [data-appli="ia"]  { --at-accent: #4f5bd5; --at-accent-fg: #ffffff; }
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --at-bg: #f3f4f8;
+    --at-bg-raised: #ffffff;
+    --at-surface: #ffffff;
+    --at-surface-hover: #f0f2f7;
+    --at-line: #dde1ea;
+    --at-fg: #1a1f2c;
+    --at-fg-muted: #5a6378;
+    --at-fg-faint: #8a92a5;
+    --at-accent: #5a6378;
+    --at-accent-fg: #ffffff;
+    --at-ok: #237a4b;
+    --at-warn: #a35f07;
+    --at-danger: #c43535;
+    --at-ia: #3f55c9;
+    --at-ombre: 0 4px 16px rgba(16, 16, 24, 0.08), 0 1px 3px rgba(16, 16, 24, 0.06);
+    color-scheme: light;
+  }
+  :root[data-appli="lvl"]:not([data-theme="dark"]), :root:not([data-theme="dark"]) [data-appli="lvl"] { --at-accent: #8f6200; --at-accent-fg: #ffffff; }
+  :root[data-appli="am"]:not([data-theme="dark"]), :root:not([data-theme="dark"]) [data-appli="am"]  { --at-accent: #b54a0b; --at-accent-fg: #ffffff; }
+  :root[data-appli="ia"]:not([data-theme="dark"]), :root:not([data-theme="dark"]) [data-appli="ia"]  { --at-accent: #4f5bd5; --at-accent-fg: #ffffff; }
+}
+
+/* ------------------------------------------------------------ composants communs */
+
+/* Carte : le bloc de base des tableaux de bord. */
+.at-carte {
+  background: var(--at-surface);
+  border: 1px solid var(--at-line);
+  border-radius: var(--at-radius);
+  padding: 16px;
+  color: var(--at-fg);
+}
+
+/* Boutons : secondaire (.at-bouton) et principal (.at-bouton-principal, à l'accent). */
+.at-bouton,
+.at-bouton-principal {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border: 1px solid var(--at-line);
+  border-radius: var(--at-radius-sm);
+  background: var(--at-surface);
+  color: var(--at-fg);
+  font: 500 14px/1.2 var(--at-font);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, filter 0.15s;
+}
+.at-bouton:hover:not(:disabled) { background: var(--at-surface-hover); border-color: var(--at-fg-faint); }
+.at-bouton-principal {
+  background: var(--at-accent);
+  border-color: var(--at-accent);
+  color: var(--at-accent-fg);
+  font-weight: 600;
+}
+.at-bouton-principal:hover:not(:disabled) { filter: brightness(1.08); }
+.at-bouton:disabled,
+.at-bouton-principal:disabled { opacity: 0.5; cursor: default; }
+.at-bouton:focus-visible,
+.at-bouton-principal:focus-visible { outline: 2px solid var(--at-accent); outline-offset: 2px; }
+
+/* Pastille « par l'IA » : marque ce qu'une IA a écrit. Vide, elle affiche le texte seule. */
+.at-pastille-ia {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--at-ia-soft);
+  color: var(--at-ia);
+  font: 600 11px/1.5 var(--at-font);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.at-pastille-ia:empty::before { content: "par l'IA"; }
+
+@media (prefers-reduced-motion: reduce) {
+  .at-bouton, .at-bouton-principal { transition: none; }
+}
