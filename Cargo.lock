@@ -7,6 +7,7 @@ name = "ableton-manager"
 version = "0.1.0"
 dependencies = [
  "als-parser",
+ "biblio",
  "blake3",
  "hound",
  "mp3lame-encoder",
@@ -32,8 +33,11 @@ dependencies = [
 name = "ableton-manager-mcp"
 version = "0.1.0"
 dependencies = [
+ "ableton-manager",
+ "biblio",
  "rusqlite",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -309,6 +313,13 @@ name = "base64"
 version = "0.23.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
+
+[[package]]
+name = "biblio"
+version = "0.1.0"
+dependencies = [
+ "rusqlite",
+]
 
 [[package]]
 name = "bit-set"

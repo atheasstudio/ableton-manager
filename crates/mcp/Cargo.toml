@@ -7,3 +7,9 @@ description = "Serveur MCP (stdio) qui expose la bibliothèque d'Ableton Manager
 [dependencies]
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde_json = "1"
+biblio = { path = "../biblio" }
+
+[dev-dependencies]
+# Les tests partent du vrai schéma : celui des migrations de l'appli.
+ableton-manager = { path = "../../src-tauri" }
+tempfile = "3"
