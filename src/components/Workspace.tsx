@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { ask } from "@tauri-apps/plugin-dialog";
-import { api, formatAgo, formatDate, formatDuration, ProjectDetail, STATUS_LABELS, Status } from "../api";
+import { api, BIBLIO_CHANGEE, formatAgo, formatDate, formatDuration, ProjectDetail, STATUS_LABELS, Status } from "../api";
 import { baseName } from "./Explorer";
 import PreviewSection from "./PreviewSection";
 import { toast } from "./Toasts";
@@ -66,8 +66,14 @@ export default function Workspace({ id, onChange, onVaultChange }: Props) {
     const unlisten = listen("worktime-changed", (e) => {
       if (worktimeProject(e.payload) === id) load();
     });
+    // Changement fait par l'IA : on rafraîchit la fiche sans toucher à la
+    // note en cours d'écriture.
+    const unlistenBiblio = listen(BIBLIO_CHANGEE, () => {
+      api.getProject(id).then((p) => shown.current === id && setProject(p), () => {});
+    });
     return () => {
       unlisten.then((f) => f());
+      unlistenBiblio.then((f) => f());
     };
   }, [id]);
 

@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { ask, open } from "@tauri-apps/plugin-dialog";
-import { api, ExportFile, formatAgo, Todo } from "../api";
+import { api, BIBLIO_CHANGEE, ExportFile, formatAgo, Todo } from "../api";
 import { toast, toastError } from "./Toasts";
+import "./pastille-ia.css";
 
 /**
  * Ouvre le projet dans Live, après avoir prévenu s'il manque des samples.
@@ -138,6 +140,13 @@ export function TodosTab({ projectId, onOpenProject }: { projectId: number; onOp
     api.listTodos(all ? undefined : projectId).then(setTodos, toastError("Tâches illisibles"));
   }
   useEffect(load, [projectId, all]);
+  // Tâche ajoutée ou cochée par l'IA : la liste suit.
+  useEffect(() => {
+    const un = listen(BIBLIO_CHANGEE, load);
+    return () => {
+      un.then((f) => f());
+    };
+  }, [projectId, all]);
 
   async function add() {
     if (!text.trim()) return;
@@ -172,6 +181,11 @@ export function TodosTab({ projectId, onOpenProject }: { projectId: number; onOp
               />{" "}
               {t.text}
             </label>
+            {t.source === "ia" && (
+              <span className="at-pastille-ia" title="Tâche ajoutée par l'IA">
+                par l'IA
+              </span>
+            )}
             {all && t.project_id !== projectId && (
               <button className="link" onClick={() => onOpenProject?.(t.project_id)}>
                 {t.project_name}
