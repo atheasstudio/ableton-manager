@@ -8,7 +8,7 @@
  *
  * - Sombre par défaut ; clair sous [data-theme="light"] sur <html>, ou quand
  *   le système est en clair (sauf si [data-theme="dark"] force le sombre).
- * - Accent par appli : [data-appli="lvl|am|ia"] sur <html>.
+ * - Accent par appli : [data-appli="lvl|am|ia"] sur <html>, ou sur un élément (carte venue d'une autre appli).
  * - Chaque appli branche ses propres variables sur les --at-* ; seules les
  *   couleurs d'accent diffèrent d'une appli à l'autre.
  */
@@ -48,9 +48,9 @@
   color-scheme: dark;
 }
 
-:root[data-appli="lvl"] { --at-accent: #f2b53c; --at-accent-fg: #1a1406; }
-:root[data-appli="am"]  { --at-accent: #ff7a2f; --at-accent-fg: #1a0d04; }
-:root[data-appli="ia"]  { --at-accent: #7c9cff; --at-accent-fg: #0b1230; }
+:root[data-appli="lvl"], [data-appli="lvl"] { --at-accent: #f2b53c; --at-accent-fg: #1a1406; }
+:root[data-appli="am"], [data-appli="am"]  { --at-accent: #ff7a2f; --at-accent-fg: #1a0d04; }
+:root[data-appli="ia"], [data-appli="ia"]  { --at-accent: #7c9cff; --at-accent-fg: #0b1230; }
 
 /* ------------------------------------------------------------ clair */
 /* Les mêmes valeurs deux fois : bascule explicite, puis système. */
@@ -73,9 +73,9 @@
   color-scheme: light;
 }
 /* Accents clairs : contraste ≥ 4.5:1 sur blanc, texte blanc dessus. */
-:root[data-theme="light"][data-appli="lvl"] { --at-accent: #8f6200; --at-accent-fg: #ffffff; }
-:root[data-theme="light"][data-appli="am"]  { --at-accent: #b54a0b; --at-accent-fg: #ffffff; }
-:root[data-theme="light"][data-appli="ia"]  { --at-accent: #4f5bd5; --at-accent-fg: #ffffff; }
+:root[data-theme="light"][data-appli="lvl"], :root[data-theme="light"] [data-appli="lvl"] { --at-accent: #8f6200; --at-accent-fg: #ffffff; }
+:root[data-theme="light"][data-appli="am"], :root[data-theme="light"] [data-appli="am"]  { --at-accent: #b54a0b; --at-accent-fg: #ffffff; }
+:root[data-theme="light"][data-appli="ia"], :root[data-theme="light"] [data-appli="ia"]  { --at-accent: #4f5bd5; --at-accent-fg: #ffffff; }
 
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
@@ -96,9 +96,9 @@
     --at-ombre: 0 4px 16px rgba(16, 16, 24, 0.08), 0 1px 3px rgba(16, 16, 24, 0.06);
     color-scheme: light;
   }
-  :root[data-appli="lvl"]:not([data-theme="dark"]) { --at-accent: #8f6200; --at-accent-fg: #ffffff; }
-  :root[data-appli="am"]:not([data-theme="dark"])  { --at-accent: #b54a0b; --at-accent-fg: #ffffff; }
-  :root[data-appli="ia"]:not([data-theme="dark"])  { --at-accent: #4f5bd5; --at-accent-fg: #ffffff; }
+  :root[data-appli="lvl"]:not([data-theme="dark"]), :root:not([data-theme="dark"]) [data-appli="lvl"] { --at-accent: #8f6200; --at-accent-fg: #ffffff; }
+  :root[data-appli="am"]:not([data-theme="dark"]), :root:not([data-theme="dark"]) [data-appli="am"]  { --at-accent: #b54a0b; --at-accent-fg: #ffffff; }
+  :root[data-appli="ia"]:not([data-theme="dark"]), :root:not([data-theme="dark"]) [data-appli="ia"]  { --at-accent: #4f5bd5; --at-accent-fg: #ffffff; }
 }
 
 /* ------------------------------------------------------------ composants communs */
