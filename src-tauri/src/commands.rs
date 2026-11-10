@@ -1106,3 +1106,9 @@ pub fn open_export(app: AppHandle, state: State<AppState>, project_id: i64, path
     }
     app.opener().open_path(path, None::<&str>).map_err(|e| Error::Other(e.to_string()))
 }
+
+/// Projet demandé par `--ouvrir <ref>` au lancement ; rendu une seule fois.
+#[tauri::command]
+pub fn prendre_projet_a_ouvrir(attente: State<crate::ouvrir::EnAttente>) -> Option<i64> {
+    attente.0.lock().unwrap().take()
+}
